@@ -1,0 +1,9 @@
+{
+    "files.associations": {
+        "*.asm": "asm-collection",
+        "*.c": "c",
+        "libwebsockets.h": "c",
+        "syslog.h": "c",
+        "json.h": "c"
+    }
+}

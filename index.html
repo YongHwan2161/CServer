@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Server File Editor and WebSocket Server</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.30.1/min/vs/loader.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            height: 100vh;
+        }
+
+        #file-browser {
+            width: 250px;
+            border-right: 1px solid #ccc;
+            padding-right: 20px;
+            overflow-y: auto;
+        }
+
+        .tree,
+        .tree ul,
+        .tree li {
+            list-style-type: none;
+            padding-left: 20px;
+        }
+
+        .tree {
+            padding-left: 0;
+        }
+
+        .tree-item {
+            cursor: pointer;
+            padding: 5px;
+            display: flex;
+            align-items: center;
+        }
+
+        .tree-item:hover {
+            background-color: #f0f0f0;
+        }
+
+        .tree-item::before {
+            content: '▶';
+            display: inline-block;
+            margin-right: 5px;
+            transition: transform 0.2s;
+        }
+
+        .tree-item.expanded::before {
+            transform: rotate(90deg);
+        }
+
+        .tree-item.file::before {
+            content: '📄';
+        }
+
+        .tree-item.directory::before {
+            content: '📁';
+        }
+
+        .tree-item.expanded.directory::before {
+            content: '📂';
+        }
+
+        #editor-container {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #editor {
+            flex-grow: 1;
+            border: 1px solid #ccc;
+        }
+
+        #output {
+            height: 200px;
+            border: 1px solid #ccc;
+            overflow-y: auto;
+            margin-top: 20px;
+            padding: 10px;
+        }
+
+        #controls {
+            margin-top: 20px;
+        }
+
+        button {
+            margin-right: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="file-browser">
+        <h3>Server Files</h3>
+        <ul class="tree" id="file-tree"></ul>
+    </div>
+    <div id="editor-container">
+        <div id="editor"></div>
+        <div id="controls">
+            <button id="saveBtn">Save</button>
+            <button id="buildBtn">Build</button>
+            <button id="runBtn">Run</button>
+        </div>
+        <div id="output"></div>
+    </div>
+
+    <script>
+        let editor;
+        let socket;
+        let currentFile = '';
+
+        require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.30.1/min/vs' } });
+        require(['vs/editor/editor.main'], function () {
+            editor = monaco.editor.create(document.getElementById('editor'), {
+                value: '// Select a file to edit',
+                language: 'c',
+                theme: 'vs-dark'
+            });
+
+            connectWebSocket();
+        });
+
+        function connectWebSocket() {
+            socket = new WebSocket('wss://' + window.location.host + '/websocket');
+
+            socket.onopen = function (event) {
+                console.log('WebSocket connected');
+                listFiles('');
+            };
+
+            socket.onmessage = function (event) {
+                const data = JSON.parse(event.data);
+                switch (data.action) {
+                    case 'file_list':
+                        updateFileTree(data.items, data.path);
+                        break;
+                    case 'file_content':
+                        editor.setValue(data.content);
+                        break;
+                    case 'save_result':
+                    case 'build_result':
+                    case 'run_output':
+                        document.getElementById('output').innerText += data.content + '\n';
+                        break;
+                }
+            };
+
+            socket.onclose = function (event) {
+                console.log('WebSocket disconnected');
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+
+        function listFiles(path) {
+            socket.send(JSON.stringify({ action: 'list_files', path: path || '' }));
+        }
+        
+        function updateFileTree(items, path) {
+            const treeRoot = document.getElementById('file-tree');
+            if (path === '') {
+                treeRoot.innerHTML = '';
+            }
+            const parentElement = path === '' ? treeRoot : document.querySelector(`[data-path="${path}"] > ul`);
+            if (!parentElement) return;
+
+            items.forEach(item => {
+                const li = document.createElement('li');
+                const div = document.createElement('div');
+                div.className = `tree-item ${item.type}`;
+                div.textContent = item.name;
+                div.dataset.path = item.path;  // Use the full path provided by the server
+                li.appendChild(div);
+
+                if (item.type === 'directory') {
+                    const ul = document.createElement('ul');
+                    ul.style.display = 'none';
+                    li.appendChild(ul);
+                    div.onclick = (e) => {
+                        e.stopPropagation();
+                        div.classList.toggle('expanded');
+                        ul.style.display = ul.style.display === 'none' ? 'block' : 'none';
+                        if (ul.children.length === 0) {
+                            listFiles(div.dataset.path);
+                        }
+                    };
+                } else {
+                    div.onclick = () => loadFile(div.dataset.path);
+                }
+
+                parentElement.appendChild(li);
+            });
+        }
+        function loadFile(filename) {
+            currentFile = filename;
+            socket.send(JSON.stringify({ action: 'read_file', filename: filename }));
+        }
+
+        document.getElementById('saveBtn').addEventListener('click', function () {
+            if (!currentFile) {
+                alert('Please select a file to save');
+                return;
+            }
+            const content = editor.getValue();
+            socket.send(JSON.stringify({ action: 'save_file', filename: currentFile, content: content }));
+        });
+
+        document.getElementById('buildBtn').addEventListener('click', function () {
+            socket.send(JSON.stringify({ action: 'build' }));
+        });
+
+        document.getElementById('runBtn').addEventListener('click', function () {
+            socket.send(JSON.stringify({ action: 'run' }));
+        });
+    </script>
+</body>
+
+</html>
