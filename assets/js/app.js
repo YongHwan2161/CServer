@@ -23,8 +23,14 @@ function connectWebSocket() {
             case 'run_output':
                 updateOutput(data.content);
                 break;
-            case 'message_response':
-                handleServerResponse(data.content);
+                case 'message_response':
+                    handleMessageResponse(data.content, data.format);
+                    break;
+            case 'index_table_info':
+                displayIndexTableInfo(data.data);
+                break;
+            case 'free_space_table_info':
+                displayFreeSpaceTableInfo(data.data);
                 break;
             default:
                 console.log('Unknown action:', data.action);
@@ -54,20 +60,23 @@ function sendTextToServer() {
 function handleServerResponse(content) {
     updateOutput('Received: ' + content);
 }
-
-// 새로운 함수: 특정 인덱스의 메시지를 요청
+// 수정된 함수: 메시지 또는 바이너리 데이터 요청
 function getMessageByIndex() {
-    const indexInput = document.getElementById('indexInput');
+    const indexInput = document.getElementById('messageIndexInput');
+    const formatSelect = document.getElementById('outputFormatSelect');
     const index = indexInput.value;
+    const format = formatSelect.value;
+
     if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ action: 'message', content: 'get:' + index }));
-        updateOutput('Requesting message with index: ' + index);
+        socket.send(JSON.stringify({ action: 'message', content: `get:${index}:${format}` }));
+        updateOutput(`Requesting message with index: ${index} in ${format} format`);
         indexInput.value = '';
     } else {
         console.error('WebSocket is not connected');
         updateStatus('Error: WebSocket is not connected');
     }
 }
+
 // 새로운 함수: 특정 인덱스의 메시지를 수정
 function modifyMessageByIndex() {
     const indexInput = document.getElementById('modifyIndexInput');
@@ -126,6 +135,83 @@ window.onload = function () {
         sendButton.addEventListener('click', sendTextToServer);
     }
 };
+function getIndexTableInfo() {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ action: 'message', content: 'get_index_table_info' }));
+    } else {
+        console.error('WebSocket is not connected');
+        updateStatus('Error: WebSocket is not connected');
+    }
+}
+
+function getFreeSpaceTableInfo() {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ action: 'message', content: 'get_free_space_table_info' }));
+    } else {
+        console.error('WebSocket is not connected');
+        updateStatus('Error: WebSocket is not connected');
+    }
+}
+
+function displayIndexTableInfo(data) {
+    let tableHTML = '<h2>Index Table Info</h2><table><tr><th>Index</th><th>Offset</th><th>Length</th></tr>';
+    data.forEach(entry => {
+        tableHTML += `<tr><td>${entry.index}</td><td>${entry.offset}</td><td>${entry.length}</td></tr>`;
+    });
+    tableHTML += '</table>';
+    document.getElementById('tableContainer').innerHTML = tableHTML;
+}
+
+function displayFreeSpaceTableInfo(data) {
+    let tableHTML = '<h2>Free Space Table Info</h2><table><tr><th>Offset</th><th>Length</th></tr>';
+    data.forEach(entry => {
+        tableHTML += `<tr><td>${entry.offset}</td><td>${entry.length}</td></tr>`;
+    });
+    tableHTML += '</table>';
+    document.getElementById('tableContainer').innerHTML = tableHTML;
+}
+// 새로운 함수: 서버 응답 처리
+function handleMessageResponse(content, format) {
+    switch (format) {
+        case 'text':
+            updateOutput('Retrieved message: ' + content);
+            break;
+        case 'binary':
+            const binaryString = hexToBinary(content);
+            updateOutput('Binary data: ' + binaryString);
+            break;
+        case 'hex':
+            updateOutput('Hexadecimal data: ' + content);
+            break;
+        default:
+            updateOutput('Unknown format: ' + content);
+    }
+}
+
+// 새로운 함수: 특정 인덱스의 바이너리 데이터를 요청
+// function getBinaryDataByIndex() {
+//     const indexInput = document.getElementById('binaryIndexInput');
+//     const index = indexInput.value;
+//     if (socket && socket.readyState === WebSocket.OPEN) {
+//         socket.send(JSON.stringify({ action: 'message', content: 'get_binary:' + index }));
+//         updateOutput('Requesting binary data for index: ' + index);
+//         indexInput.value = '';
+//     } else {
+//         console.error('WebSocket is not connected');
+//         updateStatus('Error: WebSocket is not connected');
+//     }
+// }
+// // 새로운 함수: 바이너리 데이터를 화면에 표시
+// function displayBinaryData(hexString) {
+//     const binaryString = hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16).toString(2).padStart(8, '0')).join(' ');
+//     updateOutput('Binary data: ' + binaryString);
+// }
+// 새로운 함수: 16진수를 이진수 문자열로 변환
+function hexToBinary(hexString) {
+    return hexString.match(/.{1,2}/g)
+        .map(byte => parseInt(byte, 16).toString(2).padStart(8, '0'))
+        .join(' ');
+}
 
 // 초기화 함수
 function init() {
@@ -144,10 +230,23 @@ function init() {
     if (modifyMessageButton) {
         modifyMessageButton.addEventListener('click', modifyMessageByIndex);
     }
+    const getIndexTableInfoButton = document.getElementById('getIndexTableInfoButton');
+    if (getIndexTableInfoButton) {
+        getIndexTableInfoButton.addEventListener('click', getIndexTableInfo);
+    }
+
+    const getFreeSpaceTableInfoButton = document.getElementById('getFreeSpaceTableInfoButton');
+    if (getFreeSpaceTableInfoButton) {
+        getFreeSpaceTableInfoButton.addEventListener('click', getFreeSpaceTableInfo);
+    }
+    // const getBinaryDataButton = document.getElementById('getBinaryDataButton');
+    // if (getBinaryDataButton) {
+    //     getBinaryDataButton.addEventListener('click', getBinaryDataByIndex);
+    // }
 
     const textInput = document.getElementById('textinput');
     if (textInput) {
-        textInput.addEventListener('keypress', function(event) {
+        textInput.addEventListener('keypress', function (event) {
             if (event.key === 'Enter') {
                 event.preventDefault();
                 sendTextToServer();
