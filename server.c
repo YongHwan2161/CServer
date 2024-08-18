@@ -21,6 +21,8 @@
 #define BUFFER_SIZE 4096
 #define MAX_FILENAME_LENGTH 100
 #define MESSAGE_FILE "messages.bin"
+#define INDEX_FILE "index.bin"
+#define MAX_MESSAGES 1000000  // 최대 메시지 수를 정의합니다
 
 typedef struct
 {
@@ -28,9 +30,16 @@ typedef struct
     char *cert_file;
     char *key_file;
 } ServerConfig;
+typedef struct {
+    uint32_t index;
+    uint64_t offset;  // 64비트 오프셋을 사용하여 큰 파일 지원
+} IndexEntry;
 
 ServerConfig config = {8443, "cert.pem", "key.pem"};
 volatile sig_atomic_t keep_running = 1;
+// 전역 변수로 인덱스 테이블을 선언합니다
+IndexEntry *index_table = NULL;
+uint32_t index_table_size = 0;
 
 void handle_signal(int sig)
 {
@@ -553,17 +562,160 @@ void handle_run(SSL *ssl)
     free(output);
     free(response);
 }
-
-// 새로운 함수: 메시지를 바이너리 파일에 추가
-void append_message_to_file(const char *message) {
-    FILE *file = fopen(MESSAGE_FILE, "ab");  // 'ab' 모드로 열어 파일 끝에 추가
+// 인덱스 테이블을 초기화하는 함수
+void initialize_index_table() {
+    FILE *file = fopen(INDEX_FILE, "rb");
     if (file == NULL) {
-        syslog(LOG_ERR, "Error opening file for appending: %s", MESSAGE_FILE);
+        // 인덱스 파일이 존재하지 않는 경우, 새로운 파일을 생성합니다.
+        file = fopen(INDEX_FILE, "wb");
+        if (file == NULL) {
+            syslog(LOG_ERR, "Error creating index file: %s", INDEX_FILE);
+            exit(EXIT_FAILURE);
+        }
+        // 새 파일에 초기 인덱스 테이블 크기(0)를 쓰고 닫습니다.
+        uint32_t initial_size = 0;
+        fwrite(&initial_size, sizeof(uint32_t), 1, file);
+        fclose(file);
+        
+        // 인덱스 테이블 초기화
+        index_table = malloc(sizeof(IndexEntry) * MAX_MESSAGES);
+        if (index_table == NULL) {
+            syslog(LOG_ERR, "Error allocating memory for index table");
+            exit(EXIT_FAILURE);
+        }
+        index_table_size = 0;
+        syslog(LOG_INFO, "Created new index file and initialized index table");
         return;
     }
+
+    // 기존 파일에서 인덱스 테이블 크기를 읽습니다.
+    if (fread(&index_table_size, sizeof(uint32_t), 1, file) != 1) {
+        syslog(LOG_ERR, "Error reading index table size from file");
+        fclose(file);
+        exit(EXIT_FAILURE);
+    }
+
+    // 인덱스 테이블 메모리 할당
+    index_table = malloc(sizeof(IndexEntry) * MAX_MESSAGES);
+    if (index_table == NULL) {
+        syslog(LOG_ERR, "Error allocating memory for index table");
+        fclose(file);
+        exit(EXIT_FAILURE);
+    }
+
+    // 인덱스 테이블 데이터 읽기
+    if (fread(index_table, sizeof(IndexEntry), index_table_size, file) != index_table_size) {
+        syslog(LOG_ERR, "Error reading index table from file");
+        fclose(file);
+        free(index_table);
+        exit(EXIT_FAILURE);
+    }
+
+    fclose(file);
+    syslog(LOG_INFO, "Loaded index table with %u entries", index_table_size);
+}
+
+// 인덱스 테이블을 파일에 저장하는 함수
+void save_index_table() {
+    FILE *file = fopen(INDEX_FILE, "wb");
+    if (file == NULL) {
+        syslog(LOG_ERR, "Error opening index file for writing: %s", INDEX_FILE);
+        return;
+    }
+
+    // 인덱스 테이블 크기를 씁니다.
+    fwrite(&index_table_size, sizeof(uint32_t), 1, file);
+
+    // 인덱스 테이블 데이터를 씁니다.
+    fwrite(index_table, sizeof(IndexEntry), index_table_size, file);
+
+    fclose(file);
+    syslog(LOG_INFO, "Saved index table with %u entries", index_table_size);
+}
+
+// 새로운 함수: 파일의 마지막 인덱스를 읽어오는 함수
+uint32_t get_last_index() {
+    FILE *file = fopen(MESSAGE_FILE, "rb");
+    if (file == NULL) {
+        // 파일이 없으면 인덱스 0부터 시작
+        return 0;
+    }
+
+    uint32_t last_index = 0;
+    uint32_t current_index;
+    time_t timestamp;
+    uint32_t message_len;
+
+    // 파일의 끝까지 읽어가며 마지막 인덱스를 찾음
+    while (fread(&current_index, sizeof(uint32_t), 1, file) == 1) {
+        last_index = current_index;
+        
+        // 타임스탬프와 메시지 길이를 읽고 건너뜀
+        fread(&timestamp, sizeof(time_t), 1, file);
+        fread(&message_len, sizeof(uint32_t), 1, file);
+        fseek(file, message_len, SEEK_CUR);
+    }
+
+    fclose(file);
+    return last_index;
+}
+// 새로운 함수: 특정 인덱스의 메시지를 파일에서 읽어오는 함수
+char* get_message_by_index(uint32_t target_index) {
+    if (target_index == 0 || target_index > index_table_size) {
+        return NULL;
+    }
+
+    FILE *file = fopen(MESSAGE_FILE, "rb");
+    if (file == NULL) {
+        syslog(LOG_ERR, "Error opening file for reading: %s", MESSAGE_FILE);
+        return NULL;
+    }
+
+    uint64_t offset = index_table[target_index - 1].offset;
+    fseek(file, offset, SEEK_SET);
+
+    time_t timestamp;
+    uint32_t message_len;
+    fread(&timestamp, sizeof(time_t), 1, file);
+    fread(&message_len, sizeof(uint32_t), 1, file);
+
+    char *message = malloc(message_len + 1);
+    if (message == NULL) {
+        syslog(LOG_ERR, "Memory allocation failed");
+        fclose(file);
+        return NULL;
+    }
+
+    fread(message, 1, message_len, file);
+    message[message_len] = '\0';
+
+    fclose(file);
+    return message;
+}
+// 수정된 함수: 메시지를 바이너리 파일에 추가하고 저장된 인덱스를 반환
+uint32_t append_message_to_file(const char *message) {
+    if (index_table_size >= MAX_MESSAGES) {
+        syslog(LOG_ERR, "Error: Maximum number of messages reached");
+        return 0;  // 최대 메시지 수에 도달한 경우 0 반환
+    }
+
+    FILE *file = fopen(MESSAGE_FILE, "ab");  // 'ab' 모드로 열어 파일 끝에 추가
+    if (file == NULL) {
+        syslog(LOG_ERR, "Error opening message file for appending: %s", MESSAGE_FILE);
+        return 0;  // 오류 시 0 반환
+    }
     
+    uint32_t index = index_table_size + 1;
     time_t now = time(NULL);
     uint32_t message_len = strlen(message);
+    
+    fseek(file, 0, SEEK_END);
+    uint64_t offset = ftell(file);
+
+    // 인덱스 테이블에 새 항목 추가
+    index_table[index_table_size].index = index;
+    index_table[index_table_size].offset = offset;
+    index_table_size++;
     
     // 타임스탬프 쓰기
     fwrite(&now, sizeof(time_t), 1, file);
@@ -575,25 +727,103 @@ void append_message_to_file(const char *message) {
     fwrite(message, 1, message_len, file);
     
     if (ferror(file)) {
-        syslog(LOG_ERR, "Error writing to file: %s", MESSAGE_FILE);
+        syslog(LOG_ERR, "Error writing to message file: %s", MESSAGE_FILE);
+        fclose(file);
+        return 0;  // 오류 시 0 반환
     } else {
-        syslog(LOG_INFO, "Message appended to file: %s", MESSAGE_FILE);
+        syslog(LOG_INFO, "Message appended to file: %s (Index: %u)", MESSAGE_FILE, index);
     }
     
     fclose(file);
+    save_index_table();  // 인덱스 테이블 저장
+    return index;  // 저장된 인덱스 반환
 }
 
+// 새로운 함수: 특정 인덱스의 메시지를 수정하는 함수
+int modify_message_by_index(uint32_t target_index, const char* new_message) {
+    if (target_index == 0 || target_index > index_table_size) {
+        return 0;
+    }
+
+    FILE *file = fopen(MESSAGE_FILE, "r+b");
+    if (file == NULL) {
+        syslog(LOG_ERR, "Error opening file for modification: %s", MESSAGE_FILE);
+        return 0;
+    }
+
+    uint64_t offset = index_table[target_index - 1].offset;
+    fseek(file, offset, SEEK_SET);
+
+    time_t now = time(NULL);
+    uint32_t new_message_len = strlen(new_message);
+
+    // 새 메시지를 파일 끝에 추가
+    fseek(file, 0, SEEK_END);
+    uint64_t new_offset = ftell(file);
+
+    fwrite(&now, sizeof(time_t), 1, file);
+    fwrite(&new_message_len, sizeof(uint32_t), 1, file);
+    fwrite(new_message, 1, new_message_len, file);
+
+    // 인덱스 테이블 업데이트
+    index_table[target_index - 1].offset = new_offset;
+
+    fclose(file);
+    save_index_table();  // 인덱스 테이블 저장
+    return 1;  // 수정 성공
+}
 void handle_message(SSL *ssl, const char *message)
 {
     char response[BUFFER_SIZE];
     
     if (message[0] == '/') {
         // '/'로 시작하는 경우, '/' 다음의 문자열을 파일에 저장
-        append_message_to_file(message + 1);
-        snprintf(response, sizeof(response), "{\"action\":\"message_response\",\"content\":\"Message saved to file.\"}");
+        uint32_t saved_index = append_message_to_file(message + 1);
+        if (saved_index > 0) {
+            snprintf(response, sizeof(response), 
+                     "{\"action\":\"message_response\",\"content\":\"Message saved to file with index: %u\"}", 
+                     saved_index);
+        } else {
+            snprintf(response, sizeof(response), 
+                     "{\"action\":\"message_response\",\"content\":\"Error: Failed to save message\"}");
+        }
+    } else if (strncmp(message, "get:", 4) == 0) {
+        // "get:" 접두사로 시작하는 경우, 해당 인덱스의 메시지를 검색
+        uint32_t index = atoi(message + 4);
+        char *retrieved_message = get_message_by_index(index);
+        if (retrieved_message != NULL) {
+            snprintf(response, sizeof(response), 
+                     "{\"action\":\"message_response\",\"content\":\"Retrieved message: %s\"}", 
+                     retrieved_message);
+            free(retrieved_message);
+        } else {
+            snprintf(response, sizeof(response), 
+                     "{\"action\":\"message_response\",\"content\":\"Error: Message not found\"}");
+        }
+    }  else if (strncmp(message, "modify:", 7) == 0) {
+        // "modify:" 접두사로 시작하는 경우, 해당 인덱스의 메시지를 수정
+        char *index_str = strtok((char *)message + 7, ":");
+        char *new_message = strtok(NULL, "");
+        if (index_str != NULL && new_message != NULL) {
+            uint32_t index = atoi(index_str);
+            if (modify_message_by_index(index, new_message)) {
+                snprintf(response, sizeof(response), 
+                         "{\"action\":\"message_response\",\"content\":\"Message with index %u modified successfully\"}", 
+                         index);
+            } else {
+                snprintf(response, sizeof(response), 
+                         "{\"action\":\"message_response\",\"content\":\"Error: Failed to modify message with index %u\"}", 
+                         index);
+            }
+        } else {
+            snprintf(response, sizeof(response), 
+                     "{\"action\":\"message_response\",\"content\":\"Error: Invalid modify command format\"}");
+        }
     } else {
         // '/'로 시작하지 않는 경우, echo 응답
-        snprintf(response, sizeof(response), "{\"action\":\"message_response\",\"content\":\"Server received: %s\"}", message);
+        snprintf(response, sizeof(response), 
+                 "{\"action\":\"message_response\",\"content\":\"Server received: %s\"}", 
+                 message);
     }
     
     websocket_write(ssl, response, strlen(response));
@@ -721,10 +951,28 @@ cleanup:
     SSL_free(ssl);
     pthread_exit(NULL);
 }
+// 메모리 해제 함수
+void cleanup() {
+    if (index_table != NULL) {
+        free(index_table);
+        index_table = NULL;
+    }
+    syslog(LOG_INFO, "Cleaned up resources");
+}
+
 int main()
 {
     int sock;
     SSL_CTX *ctx;
+    initialize_index_table();
+
+    // 메시지 파일이 존재하지 않으면 생성
+    FILE *msg_file = fopen(MESSAGE_FILE, "ab");
+    if (msg_file == NULL) {
+        syslog(LOG_ERR, "Error creating message file: %s", MESSAGE_FILE);
+        exit(EXIT_FAILURE);
+    }
+    fclose(msg_file);
 
     openlog("https_websocket_server", LOG_PID | LOG_CONS, LOG_USER);
     syslog(LOG_INFO, "Server starting...");
@@ -741,6 +989,7 @@ int main()
     sock = create_socket(config.port);
 
     syslog(LOG_INFO, "Server started on port %d", config.port);
+
 
     while (keep_running)
     {
@@ -778,7 +1027,10 @@ int main()
         }
     }
 
+
     syslog(LOG_INFO, "Server shutting down...");
+        // 프로그램 종료 시 정리 작업 수행
+    atexit(cleanup);
     close(sock);
     SSL_CTX_free(ctx);
     EVP_cleanup();

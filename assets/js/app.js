@@ -55,6 +55,35 @@ function handleServerResponse(content) {
     updateOutput('Received: ' + content);
 }
 
+// 새로운 함수: 특정 인덱스의 메시지를 요청
+function getMessageByIndex() {
+    const indexInput = document.getElementById('indexInput');
+    const index = indexInput.value;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ action: 'message', content: 'get:' + index }));
+        updateOutput('Requesting message with index: ' + index);
+        indexInput.value = '';
+    } else {
+        console.error('WebSocket is not connected');
+        updateStatus('Error: WebSocket is not connected');
+    }
+}
+// 새로운 함수: 특정 인덱스의 메시지를 수정
+function modifyMessageByIndex() {
+    const indexInput = document.getElementById('modifyIndexInput');
+    const messageInput = document.getElementById('modifyMessageInput');
+    const index = indexInput.value;
+    const newMessage = messageInput.value;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ action: 'message', content: `modify:${index}:${newMessage}` }));
+        updateOutput(`Modifying message with index: ${index}`);
+        indexInput.value = '';
+        messageInput.value = '';
+    } else {
+        console.error('WebSocket is not connected');
+        updateStatus('Error: WebSocket is not connected');
+    }
+}
 
 function listFiles(path) {
     if (socket && socket.readyState === WebSocket.OPEN) {
@@ -97,6 +126,7 @@ window.onload = function () {
         sendButton.addEventListener('click', sendTextToServer);
     }
 };
+
 // 초기화 함수
 function init() {
     console.log('Page loaded');
@@ -106,6 +136,15 @@ function init() {
     if (sendButton) {
         sendButton.addEventListener('click', sendTextToServer);
     }
+    const getMessageButton = document.getElementById('getMessageButton');
+    if (getMessageButton) {
+        getMessageButton.addEventListener('click', getMessageByIndex);
+    }
+    const modifyMessageButton = document.getElementById('modifyMessageButton');
+    if (modifyMessageButton) {
+        modifyMessageButton.addEventListener('click', modifyMessageByIndex);
+    }
+
     const textInput = document.getElementById('textinput');
     if (textInput) {
         textInput.addEventListener('keypress', function(event) {
@@ -120,4 +159,4 @@ function init() {
 document.addEventListener('DOMContentLoaded', init);
 
 // 필요한 경우 함수를 내보냄
-export { sendTextToServer, listFiles };
+export { sendTextToServer, listFiles, getMessageByIndex, modifyMessageByIndex };
