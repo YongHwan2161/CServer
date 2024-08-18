@@ -15,9 +15,12 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <linux/limits.h>
+#include <time.h>
 
 #define MAX_CLIENTS 10
 #define BUFFER_SIZE 4096
+#define MAX_FILENAME_LENGTH 100
+#define MESSAGE_FILE "messages.bin"
 
 typedef struct
 {
@@ -155,13 +158,28 @@ void send_file(SSL *ssl, const char *filename)
 
     content[fsize] = 0;
 
+    const char *content_type;
+    if (strstr(filename, ".html") != NULL)
+    {
+        content_type = "text/html";
+    }
+    else if (strstr(filename, ".js") != NULL)
+    {
+        content_type = "text/javascript"; // Changed from "application/javascript"
+    }
+    else
+    {
+        content_type = "text/plain";
+    }
+
     char header[1024];
     int header_len = snprintf(header, sizeof(header),
                               "HTTP/1.1 200 OK\r\n"
-                              "Content-Type: text/html\r\n"
+                              "Content-Type: %s\r\n"
                               "Content-Length: %ld\r\n"
+                              "Access-Control-Allow-Origin: *\r\n"
                               "\r\n",
-                              fsize);
+                              content_type, fsize);
 
     if (SSL_write(ssl, header, header_len) <= 0)
     {
@@ -286,79 +304,96 @@ int websocket_write(SSL *ssl, const char *buf, int len)
 
     return SSL_write(ssl, buf, len);
 }
-json_object* list_directory_contents(const char* base_path, const char* rel_path) {
+json_object *list_directory_contents(const char *base_path, const char *rel_path)
+{
     char full_path[PATH_MAX];
     size_t base_len = strlen(base_path);
     size_t rel_len = strlen(rel_path);
-    
-    if (base_len + rel_len + 2 > sizeof(full_path)) {
+
+    if (base_len + rel_len + 2 > sizeof(full_path))
+    {
         // Path too long, return error
         return NULL;
     }
-    
-    if (rel_len == 0) {
+
+    if (rel_len == 0)
+    {
         strncpy(full_path, base_path, sizeof(full_path) - 1);
         full_path[sizeof(full_path) - 1] = '\0';
-    } else {
+    }
+    else
+    {
         snprintf(full_path, sizeof(full_path), "%s/%s", base_path, rel_path);
     }
 
     DIR *dir = opendir(full_path);
-    if (!dir) {
+    if (!dir)
+    {
         return NULL;
     }
 
     json_object *items_array = json_object_new_array();
     struct dirent *entry;
 
-    while ((entry = readdir(dir)) != NULL) {
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+    while ((entry = readdir(dir)) != NULL)
+    {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+        {
             continue;
         }
 
         char item_path[PATH_MAX];
         size_t full_path_len = strlen(full_path);
         size_t entry_name_len = strlen(entry->d_name);
-        
-        if (full_path_len + entry_name_len + 2 > sizeof(item_path)) {
+
+        if (full_path_len + entry_name_len + 2 > sizeof(item_path))
+        {
             // Path would be too long, skip this item
             continue;
         }
-        
+
         memcpy(item_path, full_path, full_path_len);
         item_path[full_path_len] = '/';
         memcpy(item_path + full_path_len + 1, entry->d_name, entry_name_len);
         item_path[full_path_len + entry_name_len + 1] = '\0';
 
         struct stat st;
-        if (stat(item_path, &st) == 0) {
+        if (stat(item_path, &st) == 0)
+        {
             json_object *item_obj = json_object_new_object();
             json_object_object_add(item_obj, "name", json_object_new_string(entry->d_name));
-            
+
             char rel_item_path[PATH_MAX];
             size_t rel_path_len = strlen(rel_path);
-            
-            if (rel_path_len + entry_name_len + 2 > sizeof(rel_item_path)) {
+
+            if (rel_path_len + entry_name_len + 2 > sizeof(rel_item_path))
+            {
                 // Relative path would be too long, skip this item
                 json_object_put(item_obj);
                 continue;
             }
-            
-            if (rel_path_len > 0) {
+
+            if (rel_path_len > 0)
+            {
                 memcpy(rel_item_path, rel_path, rel_path_len);
                 rel_item_path[rel_path_len] = '/';
                 memcpy(rel_item_path + rel_path_len + 1, entry->d_name, entry_name_len);
                 rel_item_path[rel_path_len + entry_name_len + 1] = '\0';
-            } else {
+            }
+            else
+            {
                 memcpy(rel_item_path, entry->d_name, entry_name_len);
                 rel_item_path[entry_name_len] = '\0';
             }
-            
+
             json_object_object_add(item_obj, "path", json_object_new_string(rel_item_path));
 
-            if (S_ISDIR(st.st_mode)) {
+            if (S_ISDIR(st.st_mode))
+            {
                 json_object_object_add(item_obj, "type", json_object_new_string("directory"));
-            } else if (S_ISREG(st.st_mode)) {
+            }
+            else if (S_ISREG(st.st_mode))
+            {
                 json_object_object_add(item_obj, "type", json_object_new_string("file"));
             }
 
@@ -376,9 +411,12 @@ void handle_list_files(SSL *ssl, const char *path)
     json_object_object_add(response_obj, "path", json_object_new_string(path));
 
     char full_path[PATH_MAX];
-    if (strlen(path) == 0) {
+    if (strlen(path) == 0)
+    {
         strcpy(full_path, ".");
-    } else {
+    }
+    else
+    {
         snprintf(full_path, sizeof(full_path), "./%s", path);
     }
 
@@ -516,6 +554,51 @@ void handle_run(SSL *ssl)
     free(response);
 }
 
+// 새로운 함수: 메시지를 바이너리 파일에 추가
+void append_message_to_file(const char *message) {
+    FILE *file = fopen(MESSAGE_FILE, "ab");  // 'ab' 모드로 열어 파일 끝에 추가
+    if (file == NULL) {
+        syslog(LOG_ERR, "Error opening file for appending: %s", MESSAGE_FILE);
+        return;
+    }
+    
+    time_t now = time(NULL);
+    uint32_t message_len = strlen(message);
+    
+    // 타임스탬프 쓰기
+    fwrite(&now, sizeof(time_t), 1, file);
+    
+    // 메시지 길이 쓰기
+    fwrite(&message_len, sizeof(uint32_t), 1, file);
+    
+    // 메시지 내용 쓰기
+    fwrite(message, 1, message_len, file);
+    
+    if (ferror(file)) {
+        syslog(LOG_ERR, "Error writing to file: %s", MESSAGE_FILE);
+    } else {
+        syslog(LOG_INFO, "Message appended to file: %s", MESSAGE_FILE);
+    }
+    
+    fclose(file);
+}
+
+void handle_message(SSL *ssl, const char *message)
+{
+    char response[BUFFER_SIZE];
+    
+    if (message[0] == '/') {
+        // '/'로 시작하는 경우, '/' 다음의 문자열을 파일에 저장
+        append_message_to_file(message + 1);
+        snprintf(response, sizeof(response), "{\"action\":\"message_response\",\"content\":\"Message saved to file.\"}");
+    } else {
+        // '/'로 시작하지 않는 경우, echo 응답
+        snprintf(response, sizeof(response), "{\"action\":\"message_response\",\"content\":\"Server received: %s\"}", message);
+    }
+    
+    websocket_write(ssl, response, strlen(response));
+}
+
 void *handle_client(void *ssl_ptr)
 {
     SSL *ssl = (SSL *)ssl_ptr;
@@ -532,7 +615,11 @@ void *handle_client(void *ssl_ptr)
 
     if (strstr(buf, "GET / ") && strstr(buf, "HTTP/1.1"))
     {
-        send_file(ssl, "index.html");
+        send_file(ssl, "assets/html/index2.html");
+    }
+    else if (strstr(buf, "GET /assets/js/app.js") && strstr(buf, "HTTP/1.1"))
+    {
+        send_file(ssl, "assets/js/app.js");
     }
     else if (strstr(buf, "GET") && strstr(buf, "Upgrade: websocket"))
     {
@@ -599,6 +686,15 @@ void *handle_client(void *ssl_ptr)
                     else if (strcmp(action, "run") == 0)
                     {
                         handle_run(ssl);
+                    }
+                    else if (strcmp(action, "message") == 0)
+                    {
+                        struct json_object *content_obj;
+                        if (json_object_object_get_ex(parsed_json, "content", &content_obj))
+                        {
+                            const char *content = json_object_get_string(content_obj);
+                            handle_message(ssl, content);
+                        }
                     }
                 }
                 json_object_put(parsed_json);
