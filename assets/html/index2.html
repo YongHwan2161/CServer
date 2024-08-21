@@ -6,20 +6,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Artificial Brain</title>
     <style>
-        table {
+
+        #tableContainer {
+            margin-top: 20px;
+            overflow-x: auto;
+        }
+
+        #tableContainer table {
             border-collapse: collapse;
             width: 100%;
         }
 
-        th,
-        td {
-            border: 1px solid black;
+        #tableContainer th, #tableContainer td {
+            border: 1px solid #ddd;
             padding: 8px;
             text-align: left;
         }
 
-        th {
+        #tableContainer th {
             background-color: #f2f2f2;
+            font-weight: bold;
+        }
+
+        #tableContainer tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+
+        #tableContainer tr:hover {
+            background-color: #f5f5f5;
         }
 
         #output {
@@ -29,28 +43,109 @@
             padding: 10px;
             margin-top: 10px;
         }
+        /*message-box*/
+        .message-box {
+            padding: 10px;
+            background-color: #f0f0f0;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+        }
+
+        /*linked-messages-container*/
+        #linked-messages-container ul {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        #linked-messages-container li {
+            margin-bottom: 10px;
+            padding: 5px;
+            border: 1px solid #ccc;
+            cursor: pointer;
+        }
+
+        #linked-messages-container li:hover {
+            background-color: #f0f0f0;
+        }
+        .index-control {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .index-control button {
+            margin: 0 5px;
+        }
+
+        .input-group {
+            margin-bottom: 10px;
+        }
+
+        .input-group label {
+            display: inline-block;
+            width: 100px;
+        }
+
+        .input-group input {
+            width: 100px;
+        }
     </style>
 </head>
 
 <body>
-    <div id="status"></div>
+    <div class="message-box">
+        <h3>Current Message:</h3>
+        <div id="message-container"></div>
+    </div>
+    <div class="message-box">
+        <h3>Linked Message:</h3>
+        <div id="linked-message-container"></div>
+    </div>
+    <div class="index-control">
+        <button id="downButton">▼</button>
+        <span id="currentIndex"></span>
+        <button id="upButton">▲</button>
+    </div>
     <label id="contents"></label><br />
-    <textarea id="textinput" cols="60"></textarea>
-    <button id="myButton">Send</button><br />
-    <input type="number" id="messageIndexInput" placeholder="Enter message index">
-    <select id="outputFormatSelect">
-        <option value="text">Text</option>
-        <option value="binary">Binary</option>
-        <option value="hex">Hexadecimal</option>
-    </select>
-    <button id="getMessageButton">Get Message</button><br />
+    <div class="input-group">
+        <textarea id="textinput" cols="60" rows="3"></textarea>
+        <button id="myButton">Send</button>
+    </div>
+    <div class="input-group">
+        <label for="messageIndexInput">Get Message:</label>
+        <input type="number" id="messageIndexInput" placeholder="Enter index">
+        <select id="outputFormatSelect">
+            <option value="text">Text</option>
+            <option value="binary">Binary</option>
+            <option value="hex">Hexadecimal</option>
+        </select>
+        <button id="getMessageButton">Get Message</button>
+    </div>
     <input type="number" id="modifyIndexInput" placeholder="Enter index to modify">
     <input type="text" id="modifyMessageInput" placeholder="Enter new message">
     <button id="modifyMessageButton">Modify Message</button><br />
+    <div class="input-group">
+        <label for="sourceLinkInput">Add Link:</label>
+        <input type="number" id="sourceLinkInput" placeholder="Source index">
+        <input type="number" id="targetLinkInput" placeholder="Target index">
+        <button id="addLinkButton">Add Link</button>
+    </div>
+    <div class="input-group">
+        <label for="sourceUnlinkInput">Remove Link:</label>
+        <input type="number" id="sourceUnlinkInput" placeholder="Source index">
+        <input type="number" id="targetUnlinkInput" placeholder="Target index">
+        <button id="removeLinkButton">Remove Link</button>
+    </div>
+    <div class="input-group">
+        <label for="getLinksInput">Get Links:</label>
+        <input type="number" id="getLinksInput" placeholder="Enter index">
+        <button id="getLinksButton">Get Links</button>
+    </div>
     <button id="getIndexTableInfoButton">Get Index Table Info</button>
     <button id="getFreeSpaceTableInfoButton">Get Free Space Table Info</button><br />
     <div id="output"></div>
     <div id="tableContainer"></div>
+    <div id="status"></div>
     <div id="file-tree"></div>
     <div id="editor"></div>
     <script type="module" src="/assets/js/app.js"></script>
