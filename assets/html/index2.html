@@ -89,6 +89,16 @@
         .input-group input {
             width: 100px;
         }
+
+        .link-control {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 10px;
+        }
+
+        .link-control select {
+            margin-top: 5px;
+        }
     </style>
 </head>
 
@@ -124,21 +134,33 @@
     <input type="number" id="modifyIndexInput" placeholder="Enter index to modify">
     <input type="text" id="modifyMessageInput" placeholder="Enter new message">
     <button id="modifyMessageButton">Modify Message</button><br />
-    <div class="input-group">
+    <div class="link-control">
         <label for="sourceLinkInput">Add Link:</label>
         <input type="number" id="sourceLinkInput" placeholder="Source index">
         <input type="number" id="targetLinkInput" placeholder="Target index">
+        <select id="linkDirectionSelect">
+            <option value="forward">Forward</option>
+            <option value="backward">Backward</option>
+        </select>
         <button id="addLinkButton">Add Link</button>
     </div>
-    <div class="input-group">
+    <div class="link-control">
         <label for="sourceUnlinkInput">Remove Link:</label>
         <input type="number" id="sourceUnlinkInput" placeholder="Source index">
         <input type="number" id="targetUnlinkInput" placeholder="Target index">
+        <select id="unlinkDirectionSelect">
+            <option value="forward">Forward</option>
+            <option value="backward">Backward</option>
+        </select>
         <button id="removeLinkButton">Remove Link</button>
     </div>
-    <div class="input-group">
+    <div class="link-control">
         <label for="getLinksInput">Get Links:</label>
         <input type="number" id="getLinksInput" placeholder="Enter index">
+        <select id="getLinkDirectionSelect">
+            <option value="forward">Forward</option>
+            <option value="backward">Backward</option>
+        </select>
         <button id="getLinksButton">Get Links</button>
     </div>
     <button id="getIndexTableInfoButton">Get Index Table Info</button>

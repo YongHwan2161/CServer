@@ -15,8 +15,12 @@ typedef struct {
     uint64_t offset;
     uint32_t length;
     // uint32_t link; // 새로 추가된 필드: 링크된 메시지의 인덱스
-    uint32_t links[MAX_LINKS];  // 링크 배열
-    uint32_t link_count;        // 현재 설정된 링크 수
+    // uint32_t links[MAX_LINKS];  // 링크 배열
+    // uint32_t link_count;        // 현재 설정된 링크 수
+        uint32_t forward_links[MAX_LINKS];  // 순방향 링크 배열
+    uint32_t forward_link_count;        // 현재 설정된 순방향 링크 수
+    uint32_t backward_links[MAX_LINKS]; // 역방향 링크 배열
+    uint32_t backward_link_count;       // 현재 설정된 역방향 링크 수
 } IndexEntry;
 
 typedef struct {
@@ -44,12 +48,17 @@ char* get_free_space_table_info();
 char* get_binary_data_by_index(uint32_t target_index);
 char* get_message_by_index_and_format(uint32_t target_index, const char* format);
 uint32_t get_max_index();
-// 새로운 함수 선언
-//int set_message_link(uint32_t source_index, uint32_t target_index);
-//uint32_t get_message_link(uint32_t index);
 // 수정된 함수 선언
-int add_message_link(uint32_t source_index, uint32_t target_index);
-int remove_message_link(uint32_t source_index, uint32_t target_index);
-uint32_t* get_message_links(uint32_t index, uint32_t* count);
+// int add_message_link(uint32_t source_index, uint32_t target_index);
+// int remove_message_link(uint32_t source_index, uint32_t target_index);
+// //uint32_t* get_message_links(uint32_t index, uint32_t* count);
+
+// 수정된 함수 선언
+int add_forward_link(uint32_t source_index, uint32_t target_index);
+int add_backward_link(uint32_t source_index, uint32_t target_index);
+int remove_forward_link(uint32_t source_index, uint32_t target_index);
+int remove_backward_link(uint32_t source_index, uint32_t target_index);
+uint32_t* get_forward_links(uint32_t index, uint32_t* count);
+uint32_t* get_backward_links(uint32_t index, uint32_t* count);
 
 #endif // MESSAGE_HANDLER_H

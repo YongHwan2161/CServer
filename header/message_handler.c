@@ -65,7 +65,8 @@ void initialize_index_table()
         if (fread(&index_table[i].index, sizeof(uint32_t), 1, file) != 1 ||
             fread(&index_table[i].offset, sizeof(uint64_t), 1, file) != 1 ||
             fread(&index_table[i].length, sizeof(uint32_t), 1, file) != 1 ||
-            fread(&index_table[i].link_count, sizeof(uint32_t), 1, file) != 1)
+            fread(&index_table[i].forward_link_count, sizeof(uint32_t), 1, file) != 1 ||
+            fread(&index_table[i].backward_link_count, sizeof(uint32_t), 1, file) != 1)
         {
             syslog(LOG_ERR, "Error reading index table entry from file");
             fclose(file);
@@ -73,14 +74,23 @@ void initialize_index_table()
             exit(EXIT_FAILURE);
         }
 
-        // 링크 배열 읽기
-        if (fread(index_table[i].links, sizeof(uint32_t), index_table[i].link_count, file) != index_table[i].link_count)
+        // 순방향 링크 배열 읽기
+        if (fread(index_table[i].forward_links, sizeof(uint32_t), index_table[i].forward_link_count, file) != index_table[i].forward_link_count)
         {
-            syslog(LOG_ERR, "Error reading links for index table entry");
+            syslog(LOG_ERR, "Error reading forward links for index table entry");
             fclose(file);
             free(index_table);
             exit(EXIT_FAILURE);
         }
+
+        // 역방향 링크 배열 읽기
+        if (fread(index_table[i].backward_links, sizeof(uint32_t), index_table[i].backward_link_count, file) != index_table[i].backward_link_count)
+        {
+            syslog(LOG_ERR, "Error reading backward links for index table entry");
+            fclose(file);
+            free(index_table);
+            exit(EXIT_FAILURE);
+        } 
     }
 
     fclose(file);
@@ -106,8 +116,10 @@ void save_index_table()
         fwrite(&index_table[i].index, sizeof(uint32_t), 1, file);
         fwrite(&index_table[i].offset, sizeof(uint64_t), 1, file);
         fwrite(&index_table[i].length, sizeof(uint32_t), 1, file);
-        fwrite(&index_table[i].link_count, sizeof(uint32_t), 1, file);
-        fwrite(index_table[i].links, sizeof(uint32_t), index_table[i].link_count, file);
+        fwrite(&index_table[i].forward_link_count, sizeof(uint32_t), 1, file);
+        fwrite(index_table[i].forward_links, sizeof(uint32_t), index_table[i].forward_link_count, file);
+        fwrite(&index_table[i].backward_link_count, sizeof(uint32_t), 1, file);
+        fwrite(index_table[i].backward_links, sizeof(uint32_t), index_table[i].backward_link_count, file);
     }
 
     fclose(file);
@@ -282,86 +294,198 @@ uint32_t next_power_of_two(uint32_t v) {
     v++;
     return v < 16 ? 16 : v;  // 최소 크기를 16으로 설정
 }
-// // 새로운 함수: 메시지 링크 설정
-// int set_message_link(uint32_t source_index, uint32_t target_index) {
-//     if (source_index == 0 || source_index > index_table_size || 
-//         target_index > index_table_size) {
-//         return 0; // 유효하지 않은 인덱스
-//     }
-
-//     index_table[source_index - 1].link = target_index;
-//     save_index_table();
-//     return 1; // 성공
-// }
-int add_message_link(uint32_t source_index, uint32_t target_index) {
+int add_forward_link(uint32_t source_index, uint32_t target_index) {
     if (source_index == 0 || source_index > index_table_size || 
         target_index == 0 || target_index > index_table_size) {
         return 0; // 유효하지 않은 인덱스
     }
 
-    IndexEntry* entry = &index_table[source_index - 1];
+    IndexEntry* source_entry = &index_table[source_index - 1];
+    IndexEntry* target_entry = &index_table[target_index - 1];
     
-    // 이미 최대 링크 수에 도달했는지 확인
-    if (entry->link_count >= MAX_LINKS) {
+    if (source_entry->forward_link_count >= MAX_LINKS) {
         return 0; // 더 이상 링크를 추가할 수 없음
     }
 
     // 이미 존재하는 링크인지 확인
-    for (uint32_t i = 0; i < entry->link_count; i++) {
-        if (entry->links[i] == target_index) {
+    for (uint32_t i = 0; i < source_entry->forward_link_count; i++) {
+        if (source_entry->forward_links[i] == target_index) {
             return 1; // 이미 존재하는 링크
         }
     }
 
-    // 새 링크 추가
-    entry->links[entry->link_count++] = target_index;
+    // 새 순방향 링크 추가
+    source_entry->forward_links[source_entry->forward_link_count++] = target_index;
+
+    // 대상 메시지의 역방향 링크 추가
+    if (target_entry->backward_link_count < MAX_LINKS) {
+        target_entry->backward_links[target_entry->backward_link_count++] = source_index;
+    }
+
     save_index_table();
     return 1; // 성공
 }
-int remove_message_link(uint32_t source_index, uint32_t target_index) {
-    if (source_index == 0 || source_index > index_table_size) {
+
+int add_backward_link(uint32_t source_index, uint32_t target_index) {
+    if (source_index == 0 || source_index > index_table_size || 
+        target_index == 0 || target_index > index_table_size) {
         return 0; // 유효하지 않은 인덱스
     }
 
-    IndexEntry* entry = &index_table[source_index - 1];
+    IndexEntry* source_entry = &index_table[source_index - 1];
+    IndexEntry* target_entry = &index_table[target_index - 1];
     
-    for (uint32_t i = 0; i < entry->link_count; i++) {
-        if (entry->links[i] == target_index) {
-            // 링크 제거 및 배열 정리
-            for (uint32_t j = i; j < entry->link_count - 1; j++) {
-                entry->links[j] = entry->links[j + 1];
-            }
-            entry->link_count--;
-            save_index_table();
-            return 1; // 성공
+    if (source_entry->backward_link_count >= MAX_LINKS) {
+        return 0; // 더 이상 링크를 추가할 수 없음
+    }
+
+    // 이미 존재하는 링크인지 확인
+    for (uint32_t i = 0; i < source_entry->backward_link_count; i++) {
+        if (source_entry->backward_links[i] == target_index) {
+            return 1; // 이미 존재하는 링크
         }
+    }
+
+    // 새 역방향 링크 추가
+    source_entry->backward_links[source_entry->backward_link_count++] = target_index;
+
+    // 대상 메시지의 순방향 링크 추가
+    if (target_entry->forward_link_count < MAX_LINKS) {
+        target_entry->forward_links[target_entry->forward_link_count++] = source_index;
+    }
+
+    save_index_table();
+    return 1; // 성공
+}
+int remove_forward_link(uint32_t source_index, uint32_t target_index) {
+    if (source_index == 0 || source_index > index_table_size ||
+        target_index == 0 || target_index > index_table_size) {
+        return 0; // 유효하지 않은 인덱스
+    }
+
+    IndexEntry* source_entry = &index_table[source_index - 1];
+    IndexEntry* target_entry = &index_table[target_index - 1];
+
+    int found = 0;
+
+    // 순방향 링크 제거
+    for (uint32_t i = 0; i < source_entry->forward_link_count; i++) {
+        if (source_entry->forward_links[i] == target_index) {
+            // 링크 제거 및 배열 정리
+            for (uint32_t j = i; j < source_entry->forward_link_count - 1; j++) {
+                source_entry->forward_links[j] = source_entry->forward_links[j + 1];
+            }
+            source_entry->forward_link_count--;
+            found = 1;
+            break;
+        }
+    }
+
+    if (found) {
+        // 대상 메시지의 역방향 링크 제거
+        for (uint32_t i = 0; i < target_entry->backward_link_count; i++) {
+            if (target_entry->backward_links[i] == source_index) {
+                for (uint32_t j = i; j < target_entry->backward_link_count - 1; j++) {
+                    target_entry->backward_links[j] = target_entry->backward_links[j + 1];
+                }
+                target_entry->backward_link_count--;
+                break;
+            }
+        }
+        save_index_table();
+        return 1; // 성공
     }
 
     return 0; // 링크를 찾지 못함
 }
-// 새로운 함수: 메시지 링크 가져오기
-uint32_t* get_message_links(uint32_t index, uint32_t* count) {
+
+int remove_backward_link(uint32_t source_index, uint32_t target_index) {
+    if (source_index == 0 || source_index > index_table_size ||
+        target_index == 0 || target_index > index_table_size) {
+        return 0; // 유효하지 않은 인덱스
+    }
+
+    IndexEntry* source_entry = &index_table[source_index - 1];
+    IndexEntry* target_entry = &index_table[target_index - 1];
+
+    int found = 0;
+
+    // 역방향 링크 제거
+    for (uint32_t i = 0; i < source_entry->backward_link_count; i++) {
+        if (source_entry->backward_links[i] == target_index) {
+            // 링크 제거 및 배열 정리
+            for (uint32_t j = i; j < source_entry->backward_link_count - 1; j++) {
+                source_entry->backward_links[j] = source_entry->backward_links[j + 1];
+            }
+            source_entry->backward_link_count--;
+            found = 1;
+            break;
+        }
+    }
+
+    if (found) {
+        // 대상 메시지의 순방향 링크 제거
+        for (uint32_t i = 0; i < target_entry->forward_link_count; i++) {
+            if (target_entry->forward_links[i] == source_index) {
+                for (uint32_t j = i; j < target_entry->forward_link_count - 1; j++) {
+                    target_entry->forward_links[j] = target_entry->forward_links[j + 1];
+                }
+                target_entry->forward_link_count--;
+                break;
+            }
+        }
+        save_index_table();
+        return 1; // 성공
+    }
+
+    return 0; // 링크를 찾지 못함
+}
+uint32_t* get_forward_links(uint32_t index, uint32_t* count) {
     if (index == 0 || index > index_table_size) {
         *count = 0;
         return NULL; // 유효하지 않은 인덱스
     }
 
     IndexEntry* entry = &index_table[index - 1];
-    *count = entry->link_count;
+    *count = entry->forward_link_count;
     
-    if (entry->link_count == 0) {
+    if (entry->forward_link_count == 0) {
         return NULL;
     }
 
-    uint32_t* links = malloc(sizeof(uint32_t) * entry->link_count);
+    uint32_t* links = malloc(sizeof(uint32_t) * entry->forward_link_count);
     if (links == NULL) {
         *count = 0;
         return NULL; // 메모리 할당 실패
     }
 
-    memcpy(links, entry->links, sizeof(uint32_t) * entry->link_count);
+    memcpy(links, entry->forward_links, sizeof(uint32_t) * entry->forward_link_count);
     return links;
 }
+
+uint32_t* get_backward_links(uint32_t index, uint32_t* count) {
+    if (index == 0 || index > index_table_size) {
+        *count = 0;
+        return NULL; // 유효하지 않은 인덱스
+    }
+
+    IndexEntry* entry = &index_table[index - 1];
+    *count = entry->backward_link_count;
+    
+    if (entry->backward_link_count == 0) {
+        return NULL;
+    }
+
+    uint32_t* links = malloc(sizeof(uint32_t) * entry->backward_link_count);
+    if (links == NULL) {
+        *count = 0;
+        return NULL; // 메모리 할당 실패
+    }
+
+    memcpy(links, entry->backward_links, sizeof(uint32_t) * entry->backward_link_count);
+    return links;
+}
+
 // append_message_to_file 함수 수정
 uint32_t append_message_to_file(const char *message)
 {
@@ -424,8 +548,10 @@ uint32_t append_message_to_file(const char *message)
     index_table[index_table_size].index = index;
     index_table[index_table_size].offset = offset;
     index_table[index_table_size].length = allocated_len;
-    index_table[index_table_size].link_count = 0;  // 새 메시지는 링크가 없음
-    memset(index_table[index_table_size].links, 0, sizeof(uint32_t) * MAX_LINKS);  // 링크 배열 초기화
+    index_table[index_table_size].forward_link_count = 0;  // 새 메시지는 링크가 없음
+    index_table[index_table_size].backward_link_count = 0;
+    memset(index_table[index_table_size].forward_links, 0, sizeof(uint32_t) * MAX_LINKS);  // 링크 배열 초기화
+    memset(index_table[index_table_size].backward_links, 0, sizeof(uint32_t) * MAX_LINKS);  // 링크 배열 초기화
     index_table_size++;
 
     save_index_table();
@@ -522,6 +648,7 @@ int modify_message_by_index(uint32_t target_index, const char *new_message)
     return 1; // 수정 성공
 }
 // 인덱스 테이블 정보를 JSON 형식으로 반환하는 함수
+// get_index_table_info 함수 수정
 char* get_index_table_info() {
     json_object *index_array = json_object_new_array();
     
@@ -531,11 +658,17 @@ char* get_index_table_info() {
         json_object_object_add(entry, "offset", json_object_new_int64(index_table[i].offset));
         json_object_object_add(entry, "length", json_object_new_int(index_table[i].length));
         
-        json_object *links_array = json_object_new_array();
-        for (uint32_t j = 0; j < index_table[i].link_count; j++) {
-            json_object_array_add(links_array, json_object_new_int(index_table[i].links[j]));
+        json_object *forward_links_array = json_object_new_array();
+        for (uint32_t j = 0; j < index_table[i].forward_link_count; j++) {
+            json_object_array_add(forward_links_array, json_object_new_int(index_table[i].forward_links[j]));
         }
-        json_object_object_add(entry, "links", links_array);
+        json_object_object_add(entry, "forward_links", forward_links_array);
+        
+        json_object *backward_links_array = json_object_new_array();
+        for (uint32_t j = 0; j < index_table[i].backward_link_count; j++) {
+            json_object_array_add(backward_links_array, json_object_new_int(index_table[i].backward_links[j]));
+        }
+        json_object_object_add(entry, "backward_links", backward_links_array);
         
         json_object_array_add(index_array, entry);
     }

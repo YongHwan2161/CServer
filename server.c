@@ -21,8 +21,8 @@
 #define MAX_CLIENTS 10
 #define BUFFER_SIZE 4096
 #define MAX_FILENAME_LENGTH 100
-#define MIN_BLOCK_SIZE 64  // 최소 블록 크기 (바이트)
-#define MAX_ORDER 10       // 최대 오더 (2^10 = 1024 * MIN_BLOCK_SIZE = 64KB)
+#define MIN_BLOCK_SIZE 64 // 최소 블록 크기 (바이트)
+#define MAX_ORDER 10      // 최대 오더 (2^10 = 1024 * MIN_BLOCK_SIZE = 64KB)
 
 typedef struct
 {
@@ -239,7 +239,7 @@ int websocket_read(SSL *ssl, char *buf)
     if (header_len <= 0)
         return header_len;
 
-    //int opcode = header[0] & 0x0F;
+    // int opcode = header[0] & 0x0F;
     int mask = header[1] & 0x80;
     int payload_len = header[1] & 0x7F;
     unsigned char mask_key[4];
@@ -558,152 +558,298 @@ void handle_run(SSL *ssl)
 void handle_message(SSL *ssl, const char *message)
 {
     char *response;
-    
-    if (strcmp(message, "get_index_table_info") == 0) {
+    // message는 이미 content 문자열입니다.
+    // 새로운 메시지와 현재 인덱스를 분리합니다.
+    char *message_copy = strdup(message);
+    char *new_message = strtok(message_copy, "|");
+    char *current_index_str = strtok(NULL, "|");
+
+    int current_index = 0;
+    if (current_index_str != NULL)
+    {
+        current_index = atoi(current_index_str);
+    }
+
+    if (strcmp(message, "get_index_table_info") == 0)
+    {
         response = get_index_table_info();
-    } else if (strcmp(message, "get_free_space_table_info") == 0) {
+    }
+    else if (strcmp(message, "get_free_space_table_info") == 0)
+    {
         response = get_free_space_table_info();
-    }  else if (strcmp(message, "get_max_index") == 0) {
+    }
+    else if (strcmp(message, "get_max_index") == 0)
+    {
         uint32_t max_index = get_max_index();
         response = malloc(64);
         snprintf(response, 64, "{\"action\":\"max_index\",\"value\":%u}", max_index);
-    } else if (strncmp(message, "get:", 4) == 0) {
+    }
+    else if (strncmp(message, "get:", 4) == 0)
+    {
         char *index_str = strtok((char *)message + 4, ":");
         char *format = strtok(NULL, ":");
         char *with_link = strtok(NULL, ":");
-        if (index_str != NULL && format != NULL) {
+        if (index_str != NULL && format != NULL)
+        {
             uint32_t index = atoi(index_str);
             char *content = get_message_by_index_and_format(index, format);
-            if (content != NULL) {
+            if (content != NULL)
+            {
                 json_object *response_obj = json_object_new_object();
                 json_object_object_add(response_obj, "action", json_object_new_string("message_response"));
                 json_object_object_add(response_obj, "content", json_object_new_string(content));
                 json_object_object_add(response_obj, "format", json_object_new_string(format));
-                
-                if (with_link != NULL && strcmp(with_link, "withlink") == 0) {
-                    uint32_t link_count;
-                    uint32_t* links = get_message_links(index, &link_count);
-                    if (links != NULL) {
-                        json_object *links_array = json_object_new_array();
-                        for (uint32_t i = 0; i < link_count; i++) {
-                            json_object *link_obj = json_object_new_object();
-                            json_object_object_add(link_obj, "index", json_object_new_int(links[i]));
-                            char *linked_content = get_message_by_index_and_format(links[i], "text");
-                            if (linked_content != NULL) {
-                                json_object_object_add(link_obj, "content", json_object_new_string(linked_content));
-                                free(linked_content);
-                            }
-                            json_object_array_add(links_array, link_obj);
-                        }
-                        json_object_object_add(response_obj, "links", links_array);
-                        free(links);
+
+                if (with_link != NULL && strcmp(with_link, "withlink") == 0)
+                {
+                    uint32_t forward_count, backward_count;
+                    uint32_t *forward_links = get_forward_links(index, &forward_count);
+                    uint32_t *backward_links = get_backward_links(index, &backward_count);
+
+                    json_object *links_obj = json_object_new_object();
+
+                    json_object *forward_array = json_object_new_array();
+                    for (uint32_t i = 0; i < forward_count; i++)
+                    {
+                        json_object_array_add(forward_array, json_object_new_int(forward_links[i]));
                     }
+                    json_object_object_add(links_obj, "forward", forward_array);
+
+                    json_object *backward_array = json_object_new_array();
+                    for (uint32_t i = 0; i < backward_count; i++)
+                    {
+                        json_object_array_add(backward_array, json_object_new_int(backward_links[i]));
+                    }
+                    json_object_object_add(links_obj, "backward", backward_array);
+
+                    json_object_object_add(response_obj, "links", links_obj);
+
+                    free(forward_links);
+                    free(backward_links);
                 }
-                
+
                 const char *json_string = json_object_to_json_string(response_obj);
                 response = strdup(json_string);
                 json_object_put(response_obj);
                 free(content);
-            } else {
+            }
+            else
+            {
                 response = strdup("{\"action\":\"message_response\",\"content\":\"Error: Message not found\",\"format\":\"text\"}");
             }
-        } else {
+        }
+        else
+        {
             response = strdup("{\"action\":\"message_response\",\"content\":\"Error: Invalid get command format\",\"format\":\"text\"}");
         }
-    } else if (strncmp(message, "modify:", 7) == 0) {
+    }
+    else if (strncmp(message, "modify:", 7) == 0)
+    {
         // "modify:" 접두사로 시작하는 경우, 해당 인덱스의 메시지를 수정
         char *index_str = strtok((char *)message + 7, ":");
         char *new_message = strtok(NULL, "");
-        if (index_str != NULL && new_message != NULL) {
+        if (index_str != NULL && new_message != NULL)
+        {
             uint32_t index = atoi(index_str);
-            if (modify_message_by_index(index, new_message)) {
+            if (modify_message_by_index(index, new_message))
+            {
                 response = malloc(256);
                 snprintf(response, 256, "{\"action\":\"message_response\",\"content\":\"Message with index %u modified successfully\"}", index);
-            } else {
+            }
+            else
+            {
                 response = malloc(256);
                 snprintf(response, 256, "{\"action\":\"message_response\",\"content\":\"Error: Failed to modify message with index %u\"}", index);
             }
-        } else {
+        }
+        else
+        {
             response = strdup("{\"action\":\"message_response\",\"content\":\"Error: Invalid modify command format\"}");
         }
-    } else if (strncmp(message, "link:", 5) == 0) {
-        char *source_str = strtok((char *)message + 5, ":");
+    }
+    else if (strncmp(message, "link:", 5) == 0)
+    {
+        char *direction = strtok((char *)message + 5, ":");
+        char *source_str = strtok(NULL, ":");
         char *target_str = strtok(NULL, "");
-        if (source_str != NULL && target_str != NULL) {
+        if (direction != NULL && source_str != NULL && target_str != NULL)
+        {
             uint32_t source_index = atoi(source_str);
             uint32_t target_index = atoi(target_str);
-            if (add_message_link(source_index, target_index)) {
-                response = malloc(256);
-                snprintf(response, 256, "{\"action\":\"message_response\",\"content\":\"Link added from index %u to %u\"}", source_index, target_index);
-            } else {
-                response = malloc(256);
-                snprintf(response, 256, "{\"action\":\"message_response\",\"content\":\"Error: Failed to add link from index %u to %u\"}", source_index, target_index);
+            int result;
+            if (strcmp(direction, "forward") == 0)
+            {
+                result = add_forward_link(source_index, target_index);
             }
-        } else {
+            else if (strcmp(direction, "backward") == 0)
+            {
+                result = add_backward_link(source_index, target_index);
+            }
+            else
+            {
+                response = strdup("{\"action\":\"message_response\",\"content\":\"Error: Invalid link direction\"}");
+                websocket_write(ssl, response, strlen(response));
+                free(response);
+                free(message_copy);
+                return;
+            }
+
+            if (result)
+            {
+                response = malloc(256);
+                snprintf(response, 256, "{\"action\":\"message_response\",\"content\":\"%s link added from index %u to %u\"}", direction, source_index, target_index);
+            }
+            else
+            {
+                response = malloc(256);
+                snprintf(response, 256, "{\"action\":\"message_response\",\"content\":\"Error: Failed to add %s link from index %u to %u\"}", direction, source_index, target_index);
+            }
+        }
+        else
+        {
             response = strdup("{\"action\":\"message_response\",\"content\":\"Error: Invalid link command format\"}");
         }
-    } else if (strncmp(message, "unlink:", 7) == 0) {
-        char *source_str = strtok((char *)message + 7, ":");
+    }
+    else if (strncmp(message, "unlink:", 7) == 0)
+    {
+        char *direction = strtok((char *)message + 7, ":");
+        char *source_str = strtok(NULL, ":");
         char *target_str = strtok(NULL, "");
-        if (source_str != NULL && target_str != NULL) {
+        if (direction != NULL && source_str != NULL && target_str != NULL)
+        {
             uint32_t source_index = atoi(source_str);
             uint32_t target_index = atoi(target_str);
-            if (remove_message_link(source_index, target_index)) {
-                response = malloc(256);
-                snprintf(response, 256, "{\"action\":\"message_response\",\"content\":\"Link removed from index %u to %u\"}", source_index, target_index);
-            } else {
-                response = malloc(256);
-                snprintf(response, 256, "{\"action\":\"message_response\",\"content\":\"Error: Failed to remove link from index %u to %u\"}", source_index, target_index);
+            int result;
+            if (strcmp(direction, "forward") == 0)
+            {
+                result = remove_forward_link(source_index, target_index);
             }
-        } else {
+            else if (strcmp(direction, "backward") == 0)
+            {
+                result = remove_backward_link(source_index, target_index);
+            }
+            else
+            {
+                response = strdup("{\"action\":\"message_response\",\"content\":\"Error: Invalid link direction\"}");
+                websocket_write(ssl, response, strlen(response));
+                free(response);
+                free(message_copy);
+                return;
+            }
+
+            if (result)
+            {
+                response = malloc(256);
+                snprintf(response, 256, "{\"action\":\"message_response\",\"content\":\"%s link removed from index %u to %u\"}", direction, source_index, target_index);
+            }
+            else
+            {
+                response = malloc(256);
+                snprintf(response, 256, "{\"action\":\"message_response\",\"content\":\"Error: Failed to remove %s link from index %u to %u\"}", direction, source_index, target_index);
+            }
+        }
+        else
+        {
             response = strdup("{\"action\":\"message_response\",\"content\":\"Error: Invalid unlink command format\"}");
         }
-    } else if (strncmp(message, "getlinks:", 9) == 0) {
-        char *index_str = strtok((char *)message + 9, "");
-        if (index_str != NULL) {
+    }
+    else if (strncmp(message, "getlinks:", 9) == 0)
+    {
+        char *index_str = strtok((char *)message + 9, ":");
+        char *direction = strtok(NULL, "");
+        if (index_str != NULL && direction != NULL)
+        {
             uint32_t index = atoi(index_str);
             uint32_t link_count;
-            uint32_t* links = get_message_links(index, &link_count);
-            
+            uint32_t *links;
+
             json_object *response_obj = json_object_new_object();
             json_object_object_add(response_obj, "action", json_object_new_string("message_response"));
-            
-            json_object *links_array = json_object_new_array();
-            for (uint32_t i = 0; i < link_count; i++) {
-                json_object_array_add(links_array, json_object_new_int(links[i]));
+
+            json_object *links_obj = json_object_new_object();
+
+            if (strcmp(direction, "forward") == 0 || strcmp(direction, "both") == 0)
+            {
+                links = get_forward_links(index, &link_count);
+                json_object *forward_array = json_object_new_array();
+                for (uint32_t i = 0; i < link_count; i++)
+                {
+                    json_object_array_add(forward_array, json_object_new_int(links[i]));
+                }
+                json_object_object_add(links_obj, "forward", forward_array);
+                free(links);
             }
-            
-            json_object_object_add(response_obj, "links", links_array);
-            
+
+            if (strcmp(direction, "backward") == 0 || strcmp(direction, "both") == 0)
+            {
+                links = get_backward_links(index, &link_count);
+                json_object *backward_array = json_object_new_array();
+                for (uint32_t i = 0; i < link_count; i++)
+                {
+                    json_object_array_add(backward_array, json_object_new_int(links[i]));
+                }
+                json_object_object_add(links_obj, "backward", backward_array);
+                free(links);
+            }
+
+            json_object_object_add(response_obj, "links", links_obj);
+
             const char *json_string = json_object_to_json_string(response_obj);
             response = strdup(json_string);
-            
+
             json_object_put(response_obj);
-            free(links);
-        } else {
+        }
+        else
+        {
             response = strdup("{\"action\":\"message_response\",\"content\":\"Error: Invalid getlinks command format\"}");
         }
-    } else {
+    }
+    else
+    {
         // 모든 메시지를 새 인덱스에 저장
-        uint32_t saved_index = append_message_to_file(message);
-        if (saved_index > 0) {
+        uint32_t saved_index = append_message_to_file(new_message);
+
+        if (saved_index > 0)
+        {
             json_object *response_obj = json_object_new_object();
             json_object_object_add(response_obj, "action", json_object_new_string("message_response"));
             json_object_object_add(response_obj, "content", json_object_new_string("Message saved successfully"));
             json_object_object_add(response_obj, "saved_index", json_object_new_int(saved_index));
             json_object_object_add(response_obj, "max_index", json_object_new_int(get_max_index()));
-            
+
+            json_object *links_obj = json_object_new_object();
+            json_object *forward_array = json_object_new_array();
+            json_object *backward_array = json_object_new_array();
+
+            // 새로 저장된 메시지를 현재 인덱스에 링크
+            if (current_index > 0 && current_index <= (int)get_max_index())
+            {
+                if (add_forward_link(current_index, saved_index))
+                {
+                    json_object_array_add(backward_array, json_object_new_int(current_index));
+                }
+                json_object_object_add(response_obj, "linked_index", json_object_new_int(current_index));
+            }
+
+            // 링크 정보 추가
+            json_object_object_add(links_obj, "forward", forward_array);
+            json_object_object_add(links_obj, "backward", backward_array);
+            json_object_object_add(response_obj, "links", links_obj);
+
             const char *json_string = json_object_to_json_string(response_obj);
             response = strdup(json_string);
-            
+
             json_object_put(response_obj);
-        } else {
+        }
+        else
+        {
             response = strdup("{\"action\":\"message_response\",\"content\":\"Error: Failed to save message\"}");
         }
     }
-    
+
     websocket_write(ssl, response, strlen(response));
     free(response);
+    free(message_copy);
 }
 
 void *handle_client(void *ssl_ptr)
