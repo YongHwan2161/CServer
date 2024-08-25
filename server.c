@@ -169,7 +169,8 @@ void send_file(SSL *ssl, const char *filename)
     {
         content_type = "text/javascript"; // Changed from "application/javascript"
     }
-    else if (strstr(filename, ".css") != NULL){
+    else if (strstr(filename, ".css") != NULL)
+    {
         content_type = "text/css";
     }
     else
@@ -559,12 +560,16 @@ void handle_run(SSL *ssl)
     free(response);
 }
 // 새로운 헬퍼 함수
-void add_links_to_response(uint32_t index, const char* direction, json_object *links_obj)
+void add_links_to_response(uint32_t index, const char *direction, json_object *links_obj)
 {
     uint32_t count;
     uint32_t *links = strcmp(direction, "forward") == 0 ? get_forward_links(index, &count) : get_backward_links(index, &count);
-    if (strcmp(direction, "forward2") == 0){
-            links = get_forward_links(index, &count);
+    if (strcmp(direction, "forward2") == 0)
+    {
+        links = get_forward_links(index, &count);
+    } else if (strcmp(direction, "backward2") == 0)
+    {
+        links = get_backward_links(index, &count);
     }
 
     json_object *array = json_object_new_array();
@@ -644,7 +649,11 @@ void handle_message(SSL *ssl, const char *message)
                         add_links_to_response(index, "forward2", links_obj);
                         json_object_object_add(response_obj, "parentNumber", json_object_new_string(parent_number_str));
                     }
-
+                    if (strcmp(direction, "backward2") == 0 && parent_number_str != NULL)
+                    {
+                        add_links_to_response(index, "backward2", links_obj);
+                        json_object_object_add(response_obj, "parentNumber", json_object_new_string(parent_number_str));
+                    }
                     if (json_object_object_length(links_obj) > 0)
                     {
                         json_object_object_add(response_obj, "links", links_obj);
@@ -877,7 +886,85 @@ void handle_message(SSL *ssl, const char *message)
     free(response);
     free(message_copy);
 }
+// New function to handle different actions
+void handle_action(SSL *ssl, json_object *parsed_json, const char *action)
+{
+    if (strcmp(action, "list_files") == 0)
+    {
+        json_object *path_obj;
+        const char *path = json_object_object_get_ex(parsed_json, "path", &path_obj) ?
+                           json_object_get_string(path_obj) : "";
+        handle_list_files(ssl, path);
+    }
+    else if (strcmp(action, "read_file") == 0)
+    {
+        json_object *filename_obj;
+        if (json_object_object_get_ex(parsed_json, "filename", &filename_obj))
+            handle_file_read(ssl, json_object_get_string(filename_obj));
+    }
+    else if (strcmp(action, "save_file") == 0)
+    {
+        json_object *filename_obj, *content_obj;
+        if (json_object_object_get_ex(parsed_json, "filename", &filename_obj) &&
+            json_object_object_get_ex(parsed_json, "content", &content_obj))
+        {
+            handle_file_save(ssl, json_object_get_string(filename_obj),
+                             json_object_get_string(content_obj));
+        }
+    }
+    else if (strcmp(action, "build") == 0)
+    {
+        handle_build(ssl);
+    }
+    else if (strcmp(action, "run") == 0)
+    {
+        handle_run(ssl);
+    }
+    else if (strcmp(action, "message") == 0)
+    {
+        json_object *content_obj;
+        if (json_object_object_get_ex(parsed_json, "content", &content_obj))
+            handle_message(ssl, json_object_get_string(content_obj));
+    }
+    else
+    {
+        log_error("Unknown action");
+    }
+}
+// New function to handle WebSocket communication
+void handle_websocket_communication(SSL *ssl)
+{
+    char buf[BUFFER_SIZE];
+    int bytes;
+    while (keep_running)
+    {
+        bytes = websocket_read(ssl, buf);
+        if (bytes <= 0)
+        {
+            if (bytes == 0)
+                syslog(LOG_INFO, "WebSocket connection closed by client");
+            else
+                log_error("Error reading from WebSocket");
+            break;
+        }
 
+        json_object *parsed_json = json_tokener_parse(buf);
+        if (!parsed_json)
+        {
+            log_error("Failed to parse JSON");
+            continue;
+        }
+
+        json_object *action_obj;
+        if (json_object_object_get_ex(parsed_json, "action", &action_obj))
+        {
+            const char *action = json_object_get_string(action_obj);
+            handle_action(ssl, parsed_json, action);
+        }
+
+        json_object_put(parsed_json);
+    }
+}
 void *handle_client(void *ssl_ptr)
 {
     SSL *ssl = (SSL *)ssl_ptr;
@@ -892,95 +979,35 @@ void *handle_client(void *ssl_ptr)
     }
     buf[bytes] = '\0';
 
-    if (strstr(buf, "GET / ") && strstr(buf, "HTTP/1.1"))
+    // Use a lookup table for common file requests
+    static const struct {
+        const char *path;
+        const char *file;
+    } file_routes[] = {
+        {"GET / ", "assets/html/index2.html"},
+        {"GET /assets/js/app.js", "assets/js/app.js"},
+        {"GET /assets/js/websocket.js", "assets/js/websocket.js"},
+        {"GET /assets/js/messageHandler.js", "assets/js/messageHandler.js"},
+        {"GET /assets/js/uiHandler.js", "assets/js/uiHandler.js"},
+        {"GET /assets/js/api.js", "assets/js/api.js"},
+        {"GET /assets/css/main.css", "assets/css/main.css"},
+    };
+
+    for (size_t i = 0; i < sizeof(file_routes) / sizeof(file_routes[0]); i++)
     {
-        send_file(ssl, "assets/html/index2.html");
+        if (strstr(buf, file_routes[i].path))
+        {
+            send_file(ssl, file_routes[i].file);
+            goto cleanup;
+        }
     }
-    else if (strstr(buf, "GET /assets/js/app.js") && strstr(buf, "HTTP/1.1"))
-    {
-        send_file(ssl, "assets/js/app.js");
-    }    else if (strstr(buf, "GET /assets/css/main.css") && strstr(buf, "HTTP/1.1"))
-    {
-        send_file(ssl, "assets/css/main.css");
-    }
-    else if (strstr(buf, "GET") && strstr(buf, "Upgrade: websocket"))
+
+    if (strstr(buf, "GET") && strstr(buf, "Upgrade: websocket"))
     {
         if (handle_websocket_handshake(ssl, buf) > 0)
         {
             syslog(LOG_INFO, "WebSocket connection established");
-            while (keep_running)
-            {
-                bytes = websocket_read(ssl, buf);
-                if (bytes <= 0)
-                {
-                    if (bytes == 0)
-                    {
-                        syslog(LOG_INFO, "WebSocket connection closed by client");
-                    }
-                    else
-                    {
-                        log_error("Error reading from WebSocket");
-                    }
-                    break;
-                }
-                struct json_object *parsed_json;
-                parsed_json = json_tokener_parse(buf);
-
-                struct json_object *action_obj;
-                if (json_object_object_get_ex(parsed_json, "action", &action_obj))
-                {
-                    const char *action = json_object_get_string(action_obj);
-
-                    if (strcmp(action, "list_files") == 0)
-                    {
-                        struct json_object *path_obj;
-                        const char *path = "";
-                        if (json_object_object_get_ex(parsed_json, "path", &path_obj))
-                        {
-                            path = json_object_get_string(path_obj);
-                        }
-                        handle_list_files(ssl, path);
-                    }
-                    else if (strcmp(action, "read_file") == 0)
-                    {
-                        struct json_object *filename_obj;
-                        if (json_object_object_get_ex(parsed_json, "filename", &filename_obj))
-                        {
-                            const char *filename = json_object_get_string(filename_obj);
-                            handle_file_read(ssl, filename);
-                        }
-                    }
-                    else if (strcmp(action, "save_file") == 0)
-                    {
-                        struct json_object *filename_obj, *content_obj;
-                        if (json_object_object_get_ex(parsed_json, "filename", &filename_obj) &&
-                            json_object_object_get_ex(parsed_json, "content", &content_obj))
-                        {
-                            const char *filename = json_object_get_string(filename_obj);
-                            const char *content = json_object_get_string(content_obj);
-                            handle_file_save(ssl, filename, content);
-                        }
-                    }
-                    else if (strcmp(action, "build") == 0)
-                    {
-                        handle_build(ssl);
-                    }
-                    else if (strcmp(action, "run") == 0)
-                    {
-                        handle_run(ssl);
-                    }
-                    else if (strcmp(action, "message") == 0)
-                    {
-                        struct json_object *content_obj;
-                        if (json_object_object_get_ex(parsed_json, "content", &content_obj))
-                        {
-                            const char *content = json_object_get_string(content_obj);
-                            handle_message(ssl, content);
-                        }
-                    }
-                }
-                json_object_put(parsed_json);
-            }
+            handle_websocket_communication(ssl);
         }
         else
         {
@@ -989,13 +1016,13 @@ void *handle_client(void *ssl_ptr)
     }
     else
     {
-        const char *response =
+        const char *not_found =
             "HTTP/1.1 404 Not Found\r\n"
             "Content-Type: text/plain\r\n"
             "Content-Length: 13\r\n"
             "\r\n"
             "404 Not Found";
-        SSL_write(ssl, response, strlen(response));
+        SSL_write(ssl, not_found, strlen(not_found));
     }
 
 cleanup:
@@ -1003,6 +1030,7 @@ cleanup:
     SSL_free(ssl);
     pthread_exit(NULL);
 }
+
 // 메모리 해제 함수
 void cleanup()
 {
