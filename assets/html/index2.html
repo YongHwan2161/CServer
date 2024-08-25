@@ -4,113 +4,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Artificial Brain</title>
-    <style>
-
-        #tableContainer {
-            margin-top: 20px;
-            overflow-x: auto;
-        }
-
-        #tableContainer table {
-            border-collapse: collapse;
-            width: 100%;
-        }
-
-        #tableContainer th, #tableContainer td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-
-        #tableContainer th {
-            background-color: #f2f2f2;
-            font-weight: bold;
-        }
-
-        #tableContainer tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-
-        #tableContainer tr:hover {
-            background-color: #f5f5f5;
-        }
-
-        #output {
-            height: 300px;
-            overflow-y: auto;
-            border: 1px solid #ccc;
-            padding: 10px;
-            margin-top: 10px;
-        }
-        /*message-box*/
-        .message-box {
-            padding: 10px;
-            background-color: #f0f0f0;
-            margin-bottom: 10px;
-            border: 1px solid #ccc;
-        }
-
-        /*linked-messages-container*/
-        #linked-messages-container ul {
-            list-style-type: none;
-            padding: 0;
-        }
-
-        #linked-messages-container li {
-            margin-bottom: 10px;
-            padding: 5px;
-            border: 1px solid #ccc;
-            cursor: pointer;
-        }
-
-        #linked-messages-container li:hover {
-            background-color: #f0f0f0;
-        }
-        .index-control {
-            display: flex;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-
-        .index-control button {
-            margin: 0 5px;
-        }
-
-        .input-group {
-            margin-bottom: 10px;
-        }
-
-        .input-group label {
-            display: inline-block;
-            width: 100px;
-        }
-
-        .input-group input {
-            width: 100px;
-        }
-
-        .link-control {
-            display: flex;
-            flex-direction: column;
-            margin-bottom: 10px;
-        }
-
-        .link-control select {
-            margin-top: 5px;
-        }
-    </style>
+    <title>Artificial Brain - Extended View</title>
+    <link rel="stylesheet" href="/assets/css/main.css">
 </head>
 
 <body>
-    <div class="message-box">
-        <h3>Current Message:</h3>
-        <div id="message-container"></div>
+    <script type="module" src="/assets/js/app.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <div class="message-container">
+        <div id="backward-2-messages" class="message-section">
+            <h3>Backward 2</h3>
+        </div>
+        <div id="backward-messages" class="message-section">
+            <h3>Backward 1</h3>
+        </div>
+        <div id="current-message" class="message-section">
+            <h3>Current</h3>
+        </div>
+        <div id="forward-messages" class="message-section">
+            <h3>Forward 1</h3>
+        </div>
+        <div id="forward-2-messages" class="message-section">
+            <h3>Forward 2</h3>
+        </div>
     </div>
-    <div class="message-box">
-        <h3>Linked Message:</h3>
-        <div id="linked-message-container"></div>
-    </div>
+
     <div class="index-control">
         <button id="downButton">▼</button>
         <span id="currentIndex"></span>
@@ -170,7 +89,6 @@
     <div id="status"></div>
     <div id="file-tree"></div>
     <div id="editor"></div>
-    <script type="module" src="/assets/js/app.js"></script>
 </body>
 
 </html>

@@ -28,6 +28,7 @@ function connectWebSocket() {
                 updateOutput(data.content);
                 break;
             case 'message_response':
+                console.log('case : message_response' + 'data = ' + data.content);
                 handleMessageResponse(data);
                 break;
             case 'index_table_info':
@@ -71,9 +72,12 @@ function sendTextToServer() {
 
 // 수정된 함수: 메시지 요청
 function getMessageByIndex(index, format = 'text') {
+    console.log('call getMessageByIndex');
     if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ action: 'message', content: `get:${index}:${format}:withlink` }));
-        updateOutput(`Requesting message with index: ${index} in ${format} format (with link)`);
+        socket.send(JSON.stringify({ action: 'message', content: `get:${index}:${format}` }));
+        socket.send(JSON.stringify({ action: 'message', content: `get:${index}:${format}:forward` }));
+        socket.send(JSON.stringify({ action: 'message', content: `get:${index}:${format}:backward` }));
+        updateOutput(`Requesting message and links with index: ${index}`);
     } else {
         console.error('WebSocket is not connected');
         updateStatus('Error: WebSocket is not connected');
@@ -95,16 +99,6 @@ function modifyMessageByIndex() {
         updateStatus('Error: WebSocket is not connected');
     }
 }
-
-// function addMessageLink(sourceIndex, targetIndex) {
-//     if (socket && socket.readyState === WebSocket.OPEN) {
-//         socket.send(JSON.stringify({ action: 'message', content: `link:${sourceIndex}:${targetIndex}` }));
-//         updateOutput(`Adding link from message ${sourceIndex} to ${targetIndex}`);
-//     } else {
-//         console.error('WebSocket is not connected');
-//         updateStatus('Error: WebSocket is not connected');
-//     }
-// }
 function addMessageLink(sourceIndex, targetIndex, direction) {
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ action: 'message', content: `link:${direction}:${sourceIndex}:${targetIndex}` }));
@@ -114,16 +108,6 @@ function addMessageLink(sourceIndex, targetIndex, direction) {
         updateStatus('Error: WebSocket is not connected');
     }
 }
-
-// function removeMessageLink(sourceIndex, targetIndex) {
-//     if (socket && socket.readyState === WebSocket.OPEN) {
-//         socket.send(JSON.stringify({ action: 'message', content: `unlink:${sourceIndex}:${targetIndex}` }));
-//         updateOutput(`Removing link from message ${sourceIndex} to ${targetIndex}`);
-//     } else {
-//         console.error('WebSocket is not connected');
-//         updateStatus('Error: WebSocket is not connected');
-//     }
-// }
 function removeMessageLink(sourceIndex, targetIndex, direction) {
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ action: 'message', content: `unlink:${direction}:${sourceIndex}:${targetIndex}` }));
@@ -142,17 +126,6 @@ function getMessageLinks(index, direction) {
         updateStatus('Error: WebSocket is not connected');
     }
 }
-
-// function getMessageLinks(index) {
-//     if (socket && socket.readyState === WebSocket.OPEN) {
-//         socket.send(JSON.stringify({ action: 'message', content: `getlinks:${index}` }));
-//         updateOutput(`Getting links for message ${index}`);
-//     } else {
-//         console.error('WebSocket is not connected');
-//         updateStatus('Error: WebSocket is not connected');
-//     }
-// }
-
 function listFiles(path) {
     if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ action: 'list_files', path: path }));
@@ -230,52 +203,129 @@ function displayFreeSpaceTableInfo(data) {
     tableHTML += '</table>';
     document.getElementById('tableContainer').innerHTML = tableHTML;
 }
-function updateMessageDisplay(message, isLinkedMessage = false) {
-    const container = isLinkedMessage ? document.getElementById('linked-message-container') : document.getElementById('message-container');
-    if (!container) {
-        console.error('Message container not found');
-        return;
-    }
-    container.textContent = message;
-}
-function clearLinkedMessagesDisplay() {
-    const container = document.getElementById('linked-message-container');
-    if (container) {
-        container.innerHTML = 'No linked messages';
-    }
-}
-function updateLinkedMessagesDisplay(links) {
-    const container = document.getElementById('linked-message-container');
-    if (!container) {
-        console.error('Linked messages container not found');
-        return;
-    }
-    container.innerHTML = '';
-    if (!links || ((!links.forward || links.forward.length === 0) && (!links.backward || links.backward.length === 0))) {
-        container.textContent = "No linked messages";
+function getLinkContent(link) {
+    if (typeof link === 'object') {
+        // 객체인 경우, 가장 적절한 속성을 선택하여 표시
+        return link.content || link.message || link.text || JSON.stringify(link);
     } else {
-        const ul = document.createElement('ul');
-        if (links.forward && links.forward.length > 0) {
-            const forwardLi = document.createElement('li');
-            forwardLi.innerHTML = "<strong>Forward links:</strong> " + links.forward.join(", ");
-            ul.appendChild(forwardLi);
-        }
-        if (links.backward && links.backward.length > 0) {
-            const backwardLi = document.createElement('li');
-            backwardLi.innerHTML = "<strong>Backward links:</strong> " + links.backward.join(", ");
-            ul.appendChild(backwardLi);
-        }
-        container.appendChild(ul);
+        // 객체가 아닌 경우 (예: 문자열, 숫자 등) 그대로 반환
+        return link;
     }
 }
+
+function updateBackwardMessages(backwardLinks) {
+    const backwardContainer = document.getElementById('backward-messages');
+    backwardContainer.innerHTML = '';
+    
+    backwardLinks.forEach((link, index) => {
+        const linkElement = document.createElement('div');
+        linkElement.className = 'message-link';
+        linkElement.dataset.index = link.index;
+        linkElement.innerHTML = `<span class="link-number">${-(index + 1)}</span> ${getLinkContent(link)}`;
+        backwardContainer.appendChild(linkElement);
+
+        // Add click event listener
+        linkElement.addEventListener('click', function () {
+            console.log('click backwardMessage button');
+            clearMessageContainer();
+            currentIndex = parseInt(this.dataset.index);
+            getMessageByIndex(currentIndex);
+            updateIndexDisplay();
+        });
+    });
+}
+function getForward2Messages(index, parentNumber) {
+    console.log('call getForward2Messages');
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ action: 'message', content: `get:${index}:text:forward2:${parentNumber}` }));
+        updateOutput(`Requesting forward2 messages for index: ${index}`);
+    } else {
+        console.error('WebSocket is not connected');
+        updateStatus('Error: WebSocket is not connected');
+    }
+}
+function updateForward2Messages(forward2Links, parentNumber) {
+    console.log('call updateForward2Messages' + ', parentNumber: ' + parentNumber);
+    const forward2Container = document.getElementById('forward-2-messages');
+    //forward2Container.innerHTML = '?';
+
+    forward2Links.forEach((link, index) => {
+        console.log('getLinkContent(link): ' + getLinkContent(link));
+        const linkElement = document.createElement('div');
+        linkElement.className = 'message-link';
+        linkElement.dataset.index = link.index;
+        linkElement.innerHTML = `<span class="link-number">${parentNumber}.${index + 1}</span> ${getLinkContent(link)}`;
+        forward2Container.appendChild(linkElement);
+
+        // Add click event listener
+        linkElement.addEventListener('click', function () {
+            console.log('click forward2Message button');
+            clearMessageContainer();
+            currentIndex = parseInt(this.dataset.index);
+            getMessageByIndex(currentIndex);
+            updateIndexDisplay();
+        });
+    });
+}
+
+function updateForwardMessages(forwardLinks) {
+    console.log('call updateForwardMessages');
+    const forwardContainer = document.getElementById('forward-messages');
+    // Clear previous content
+    forwardContainer.innerHTML = '';
+    document.getElementById('forward-2-messages').innerHTML = '';
+
+    forwardLinks.forEach((link, index) => {
+        const linkElement = document.createElement('div');
+        linkElement.className = 'message-link';
+        linkElement.dataset.index = link.index;
+        linkElement.innerHTML = `<span class="link-number">${index + 1}</span> ${getLinkContent(link)}`;
+        forwardContainer.appendChild(linkElement);
+
+        // Add click event listener
+        linkElement.addEventListener('click', function () {
+            console.log('click forwardMessage button');
+            clearMessageContainer();
+            currentIndex = parseInt(this.dataset.index);
+            getMessageByIndex(currentIndex);
+            updateIndexDisplay();
+        });
+
+        // Fetch forward2 messages for this link
+        console.log('request forward2Messages to server');
+        getForward2Messages(link.index, index + 1);
+        //getMessageByIndex(link.index,'text', index + 1)
+    });
+}
+
+function updateCurrentMessage(currentMessage) {
+    const currentContainer = document.getElementById('current-message');
+    currentContainer.textContent = currentMessage;
+}
+
 function handleMessageResponse(data) {
-    updateOutput(data.content);
+    if (data.content && !data.links) {
+        updateCurrentMessage(data.content);
+    }
+    if (data.links) {
+        if (data.links.forward) {
+            console.log('data.links.forward: handleMessageResponse');
+            updateForwardMessages(data.links.forward);
+        }
+        if (data.links.backward) {
+            updateBackwardMessages(data.links.backward);
+        }
+        // Handle forward2 messages
+        if (data.links.forward2) {
+            console.log('receive forward2 from server');
+            updateForward2Messages(data.links.forward2, data.parentNumber);
+        }
+    }
     if (data.saved_index && data.max_index) {
         if (maxIndex != data.max_index) {
             maxIndex = data.max_index;
         }
         updateIndexDisplay();
-
         if (data.content === "Message saved successfully") {
             if (data.linked_index) {
                 updateOutput(`New message (index ${data.saved_index}) linked to message ${data.linked_index}`);
@@ -283,56 +333,13 @@ function handleMessageResponse(data) {
             }
         } else {
             currentIndex = data.saved_index;
-            updateMessageDisplay(data.content);
         }
-    } else if (data.content.startsWith("Message with index") && data.content.includes("modified successfully")) {
-        // Do nothing for message modification
-    } else {
-        updateMessageDisplay(data.content);
     }
-    if (data.links) {
-        updateLinkedMessagesDisplay(data.links);
-    } else {
-        clearLinkedMessagesDisplay();
-    }
+    updateOutput(JSON.stringify(data));
 }
-// function updateLinkedMessagesDisplay(links) {
-//     const container = document.getElementById('linked-message-container');
-//     if (!container) {
-//         console.error('Linked messages container not found');
-//         return;
-//     }
-//     container.innerHTML = '';
-//     if (links.length === 0) {
-//         container.textContent = "No linked messages";
-//     } else {
-//         const ul = document.createElement('ul');
-//         links.forEach(link => {
-//             const li = document.createElement('li');
-//             li.innerHTML = `<strong>Message ${link.index}:</strong> ${link.content}`;
-//             li.onclick = () => {
-//                 getMessageByIndex(link.index);
-//                 currentIndex = link.index;
-//                 updateIndexDisplay();
-//             };
-//             ul.appendChild(li);
-//         });
-//         container.appendChild(ul);
-//     }
-// }
-
-
 function updateIndexDisplay() {
     document.getElementById('currentIndex').textContent = currentIndex + '/' + maxIndex;
 }
-// 새로운 함수: 링크된 메시지 처리
-// function handleLinkedMessage(linkedIndex) {
-//     if (linkedIndex > 0) {
-//         getMessageByIndex(linkedIndex);
-//     } else {
-//         updateMessageDisplay("No linked message", true);
-//     }
-// }
 
 // 새로운 함수: 최대 인덱스 요청
 function getMaxIndex() {
@@ -378,6 +385,11 @@ function getMessageLink(index) {
         updateStatus('Error: WebSocket is not connected');
     }
 }
+function clearMessageContainer(){
+    document.getElementById('forward-messages').innerHTML = '';
+    document.getElementById('forward-2-messages').innerHTML = '';
+    document.getElementById('backward-messages').innerHTML = '';
+}
 // 초기화 함수
 function init() {
     console.log('Page loaded');
@@ -385,7 +397,10 @@ function init() {
 
     const sendButton = document.getElementById('myButton');
     if (sendButton) {
-        sendButton.addEventListener('click', sendTextToServer);
+        sendButton.addEventListener('click', function () {
+            sendTextToServer();
+            clearMessageContainer();
+        });
     }
     const getMessageButton = document.getElementById('getMessageButton');
     if (getMessageButton) {
