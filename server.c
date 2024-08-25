@@ -169,6 +169,9 @@ void send_file(SSL *ssl, const char *filename)
     {
         content_type = "text/javascript"; // Changed from "application/javascript"
     }
+    else if (strstr(filename, ".css") != NULL){
+        content_type = "text/css";
+    }
     else
     {
         content_type = "text/plain";
@@ -555,6 +558,28 @@ void handle_run(SSL *ssl)
     free(output);
     free(response);
 }
+// 새로운 헬퍼 함수
+void add_links_to_response(uint32_t index, const char* direction, json_object *links_obj)
+{
+    uint32_t count;
+    uint32_t *links = strcmp(direction, "forward") == 0 ? get_forward_links(index, &count) : get_backward_links(index, &count);
+    if (strcmp(direction, "forward2") == 0){
+            links = get_forward_links(index, &count);
+    }
+
+    json_object *array = json_object_new_array();
+    for (uint32_t i = 0; i < count; i++)
+    {
+        json_object *link_obj = json_object_new_object();
+        json_object_object_add(link_obj, "index", json_object_new_int(links[i]));
+        char *link_content = get_message_by_index_and_format(links[i], "text");
+        json_object_object_add(link_obj, "content", json_object_new_string(link_content));
+        json_object_array_add(array, link_obj);
+        free(link_content);
+    }
+    json_object_object_add(links_obj, direction, array);
+    free(links);
+}
 void handle_message(SSL *ssl, const char *message)
 {
     char *response;
@@ -588,7 +613,9 @@ void handle_message(SSL *ssl, const char *message)
     {
         char *index_str = strtok((char *)message + 4, ":");
         char *format = strtok(NULL, ":");
-        char *with_link = strtok(NULL, ":");
+        char *direction = strtok(NULL, ":");
+        char *parent_number_str = strtok(NULL, "");
+
         if (index_str != NULL && format != NULL)
         {
             uint32_t index = atoi(index_str);
@@ -600,32 +627,33 @@ void handle_message(SSL *ssl, const char *message)
                 json_object_object_add(response_obj, "content", json_object_new_string(content));
                 json_object_object_add(response_obj, "format", json_object_new_string(format));
 
-                if (with_link != NULL && strcmp(with_link, "withlink") == 0)
+                if (direction != NULL)
                 {
-                    uint32_t forward_count, backward_count;
-                    uint32_t *forward_links = get_forward_links(index, &forward_count);
-                    uint32_t *backward_links = get_backward_links(index, &backward_count);
-
                     json_object *links_obj = json_object_new_object();
 
-                    json_object *forward_array = json_object_new_array();
-                    for (uint32_t i = 0; i < forward_count; i++)
+                    if (strcmp(direction, "forward") == 0 || strcmp(direction, "both") == 0)
                     {
-                        json_object_array_add(forward_array, json_object_new_int(forward_links[i]));
+                        add_links_to_response(index, "forward", links_obj);
                     }
-                    json_object_object_add(links_obj, "forward", forward_array);
-
-                    json_object *backward_array = json_object_new_array();
-                    for (uint32_t i = 0; i < backward_count; i++)
+                    if (strcmp(direction, "backward") == 0 || strcmp(direction, "both") == 0)
                     {
-                        json_object_array_add(backward_array, json_object_new_int(backward_links[i]));
+                        add_links_to_response(index, "backward", links_obj);
                     }
-                    json_object_object_add(links_obj, "backward", backward_array);
+                    if (strcmp(direction, "forward2") == 0 && parent_number_str != NULL)
+                    {
+                        add_links_to_response(index, "forward2", links_obj);
+                        json_object_object_add(response_obj, "parentNumber", json_object_new_string(parent_number_str));
+                    }
 
-                    json_object_object_add(response_obj, "links", links_obj);
-
-                    free(forward_links);
-                    free(backward_links);
+                    if (json_object_object_length(links_obj) > 0)
+                    {
+                        json_object_object_add(response_obj, "links", links_obj);
+                    }
+                    else
+                    {
+                        json_object_put(links_obj);
+                        json_object_object_add(response_obj, "error", json_object_new_string("Invalid direction"));
+                    }
                 }
 
                 const char *json_string = json_object_to_json_string(response_obj);
@@ -768,7 +796,7 @@ void handle_message(SSL *ssl, const char *message)
 
             json_object *links_obj = json_object_new_object();
 
-            if (strcmp(direction, "forward") == 0 || strcmp(direction, "both") == 0)
+            if (strcmp(direction, "forward") == 0)
             {
                 links = get_forward_links(index, &link_count);
                 json_object *forward_array = json_object_new_array();
@@ -777,10 +805,8 @@ void handle_message(SSL *ssl, const char *message)
                     json_object_array_add(forward_array, json_object_new_int(links[i]));
                 }
                 json_object_object_add(links_obj, "forward", forward_array);
-                free(links);
             }
-
-            if (strcmp(direction, "backward") == 0 || strcmp(direction, "both") == 0)
+            else if (strcmp(direction, "backward") == 0)
             {
                 links = get_backward_links(index, &link_count);
                 json_object *backward_array = json_object_new_array();
@@ -789,7 +815,6 @@ void handle_message(SSL *ssl, const char *message)
                     json_object_array_add(backward_array, json_object_new_int(links[i]));
                 }
                 json_object_object_add(links_obj, "backward", backward_array);
-                free(links);
             }
 
             json_object_object_add(response_obj, "links", links_obj);
@@ -798,6 +823,7 @@ void handle_message(SSL *ssl, const char *message)
             response = strdup(json_string);
 
             json_object_put(response_obj);
+            free(links);
         }
         else
         {
@@ -873,6 +899,9 @@ void *handle_client(void *ssl_ptr)
     else if (strstr(buf, "GET /assets/js/app.js") && strstr(buf, "HTTP/1.1"))
     {
         send_file(ssl, "assets/js/app.js");
+    }    else if (strstr(buf, "GET /assets/css/main.css") && strstr(buf, "HTTP/1.1"))
+    {
+        send_file(ssl, "assets/css/main.css");
     }
     else if (strstr(buf, "GET") && strstr(buf, "Upgrade: websocket"))
     {

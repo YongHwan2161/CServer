@@ -5,7 +5,8 @@
         "libwebsockets.h": "c",
         "syslog.h": "c",
         "json.h": "c",
-        "time.h": "c"
+        "time.h": "c",
+        "string.h": "c"
     },
     "cSpell.words": [
         "ljson",
