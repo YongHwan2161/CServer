@@ -1,7 +1,7 @@
 // uiHandler.js
 import { currentIndex, maxIndex, update_current_index} from './app.js';
 import { sendMessage } from './websocket.js';
-import { getMessageByIndex,getForward2Messages, getBackward2Messages, modifyMessageByIndex, addMessageLink, removeMessageLink, getMessageLinks } from './api.js';
+import { getMessageByIndex,getForward2Messages, getBackward2Messages, modifyMessageByIndex, addMessageLink, removeMessageLink, getMessageLinks, getIndexTableInfo, getFreeSpaceTableInfo } from './api.js';
 
 export function initUIHandlers() {
     document.getElementById('myButton').addEventListener('click', sendTextToServer);
@@ -12,7 +12,15 @@ export function initUIHandlers() {
     document.getElementById('getLinksButton').addEventListener('click', handleGetLinks);
     document.getElementById('upButton').addEventListener('click', () => changeIndex(1));
     document.getElementById('downButton').addEventListener('click', () => changeIndex(-1));
-    
+    const getIndexTableInfoButton = document.getElementById('getIndexTableInfoButton');
+    if (getIndexTableInfoButton) {
+        getIndexTableInfoButton.addEventListener('click', getIndexTableInfo);
+    }
+
+    const getFreeSpaceTableInfoButton = document.getElementById('getFreeSpaceTableInfoButton');
+    if (getFreeSpaceTableInfoButton) {
+        getFreeSpaceTableInfoButton.addEventListener('click', getFreeSpaceTableInfo);
+    }
     const textInput = document.getElementById('textinput');
     textInput.addEventListener('keypress', function (event) {
         if (event.key === 'Enter') {

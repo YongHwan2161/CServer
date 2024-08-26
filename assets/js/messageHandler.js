@@ -63,13 +63,107 @@ function handleMessageResponse(data) {
 }
 
 function displayIndexTableInfo(data) {
-    // Implementation remains the same
+    const tableContainer = document.getElementById('tableContainer');
+    tableContainer.innerHTML = '<h2>Index Table</h2>';
+    
+    if (data.length === 0) {
+        tableContainer.innerHTML += '<p>No index data available.</p>';
+        return;
+    }
+
+    const table = document.createElement('table');
+    table.innerHTML = `
+        <tr>
+            <th>Index</th>
+            <th>Offset</th>
+            <th>Length</th>
+            <th>Forward Links</th>
+            <th>Backward Links</th>
+        </tr>
+    `;
+
+    data.sort((a, b) => a.index - b.index);
+
+    data.forEach(entry => {
+        const row = table.insertRow();
+        row.insertCell().textContent = entry.index;
+        row.insertCell().textContent = entry.offset;
+        row.insertCell().textContent = entry.length;
+        row.insertCell().textContent = entry.forward_links.join(', ');
+        row.insertCell().textContent = entry.backward_links.join(', ');
+    });
+
+    tableContainer.appendChild(table);
 }
 
 function displayFreeSpaceTableInfo(data) {
-    // Implementation remains the same
+    const tableContainer = document.getElementById('tableContainer');
+    tableContainer.innerHTML = '<h2>Free Space Table</h2>';
+    
+    if (data.length === 0) {
+        tableContainer.innerHTML += '<p>No free space data available.</p>';
+        return;
+    }
+
+    const table = document.createElement('table');
+    table.innerHTML = `
+        <tr>
+            <th>Offset</th>
+            <th>Length</th>
+        </tr>
+    `;
+
+    data.sort((a, b) => a.offset - b.offset);
+
+    data.forEach(entry => {
+        const row = table.insertRow();
+        row.insertCell().textContent = entry.offset;
+        row.insertCell().textContent = entry.length;
+    });
+
+    tableContainer.appendChild(table);
+}
+// Helper function to create a sortable table
+function createSortableTable(headers, data, sortFunction) {
+    const table = document.createElement('table');
+    const headerRow = table.createTHead().insertRow();
+    
+    headers.forEach(header => {
+        const th = document.createElement('th');
+        th.textContent = header;
+        th.addEventListener('click', () => sortTable(table, headers.indexOf(header), sortFunction));
+        headerRow.appendChild(th);
+    });
+
+    const tbody = table.createTBody();
+    data.forEach(rowData => {
+        const row = tbody.insertRow();
+        rowData.forEach(cellData => {
+            const cell = row.insertCell();
+            cell.textContent = cellData;
+        });
+    });
+
+    return table;
 }
 
+// Helper function to sort table
+function sortTable(table, columnIndex, sortFunction) {
+    const tbody = table.tBodies[0];
+    const rows = Array.from(tbody.rows);
+
+    rows.sort((a, b) => {
+        const aValue = a.cells[columnIndex].textContent;
+        const bValue = b.cells[columnIndex].textContent;
+        return sortFunction(aValue, bValue);
+    });
+
+    rows.forEach(row => tbody.appendChild(row));
+}
+
+// Example sort functions
+// const sortNumeric = (a, b) => Number(a) - Number(b);
+// const sortAlphabetic = (a, b) => a.localeCompare(b);
 function handleMaxIndex(value) {
     updateMaxIndex(value);
     updateIndexDisplay();
