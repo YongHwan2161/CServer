@@ -1,7 +1,7 @@
 // uiHandler.js
 import { currentIndex, maxIndex, update_current_index} from './app.js';
 import { sendMessage } from './websocket.js';
-import { getMessageByIndex,getForward2Messages, getBackward2Messages, modifyMessageByIndex, addMessageLink, removeMessageLink, getMessageLinks, getIndexTableInfo, getFreeSpaceTableInfo } from './api.js';
+import { getMessageByIndex,getForward2Messages, getBackward2Messages, modifyMessageByIndex, addMessageLink, removeMessageLink, getMessageLinks, getIndexTableInfo, getFreeSpaceTableInfo,  getMessageHeaderInfo  } from './api.js';
 
 export function initUIHandlers() {
     document.getElementById('myButton').addEventListener('click', sendTextToServer);
@@ -11,7 +11,10 @@ export function initUIHandlers() {
     document.getElementById('removeLinkButton').addEventListener('click', handleRemoveLink);
     document.getElementById('getLinksButton').addEventListener('click', handleGetLinks);
     document.getElementById('upButton').addEventListener('click', () => changeIndex(1));
-    document.getElementById('downButton').addEventListener('click', () => changeIndex(-1));
+    document.getElementById('downButton').addEventListener('click', () => changeIndex(-1));   
+     // 새로운 버튼 추가
+    document.getElementById('getMessageHeaderButton').addEventListener('click', handleGetMessageHeader);
+    
     const getIndexTableInfoButton = document.getElementById('getIndexTableInfoButton');
     if (getIndexTableInfoButton) {
         getIndexTableInfoButton.addEventListener('click', getIndexTableInfo);
@@ -28,6 +31,11 @@ export function initUIHandlers() {
             sendTextToServer();
         }
     });
+}
+// 새로운 함수 추가
+function handleGetMessageHeader() {
+    const index = document.getElementById('messageIndexInput').value;
+    getMessageHeaderInfo(index);
 }
 
 export function updateOutput(content) {

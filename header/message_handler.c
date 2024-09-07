@@ -17,19 +17,16 @@ void initialize_index_table()
     FILE *file = fopen(INDEX_FILE, "rb");
     if (file == NULL)
     {
-        // 인덱스 파일이 존재하지 않는 경우, 새로운 파일을 생성합니다.
         file = fopen(INDEX_FILE, "wb");
         if (file == NULL)
         {
             fprintf(stderr, "Error creating index file: %s\n", INDEX_FILE);
             exit(EXIT_FAILURE);
         }
-        // 새 파일에 초기 인덱스 테이블 크기(0)를 쓰고 닫습니다.
         uint32_t initial_size = 0;
         fwrite(&initial_size, sizeof(uint32_t), 1, file);
         fclose(file);
 
-        // 인덱스 테이블 초기화
         index_table = malloc(sizeof(IndexEntry) * MAX_MESSAGES);
         if (index_table == NULL)
         {
@@ -41,7 +38,6 @@ void initialize_index_table()
         return;
     }
 
-    // 기존 파일에서 인덱스 테이블 크기를 읽습니다.
     if (fread(&index_table_size, sizeof(uint32_t), 1, file) != 1)
     {
         fprintf(stderr, "Error reading index table size from file\n");
@@ -49,7 +45,6 @@ void initialize_index_table()
         exit(EXIT_FAILURE);
     }
 
-    // 인덱스 테이블 메모리 할당
     index_table = malloc(sizeof(IndexEntry) * MAX_MESSAGES);
     if (index_table == NULL)
     {
@@ -58,38 +53,12 @@ void initialize_index_table()
         exit(EXIT_FAILURE);
     }
 
-    // 인덱스 테이블 데이터 읽기
-    for (uint32_t i = 0; i < index_table_size; i++)
+    if (fread(index_table, sizeof(IndexEntry), index_table_size, file) != index_table_size)
     {
-        if (fread(&index_table[i].index, sizeof(uint32_t), 1, file) != 1 ||
-            fread(&index_table[i].offset, sizeof(uint64_t), 1, file) != 1 ||
-            fread(&index_table[i].length, sizeof(uint32_t), 1, file) != 1 ||
-            fread(&index_table[i].forward_link_count, sizeof(uint32_t), 1, file) != 1 ||
-            fread(&index_table[i].backward_link_count, sizeof(uint32_t), 1, file) != 1)
-        {
-            fprintf(stderr, "Error reading index table entry from file\n");
-            fclose(file);
-            free(index_table);
-            exit(EXIT_FAILURE);
-        }
-
-        // 순방향 링크 배열 읽기
-        if (fread(index_table[i].forward_links, sizeof(uint32_t), index_table[i].forward_link_count, file) != index_table[i].forward_link_count)
-        {
-            fprintf(stderr, "Error reading forward links for index table entry\n");
-            fclose(file);
-            free(index_table);
-            exit(EXIT_FAILURE);
-        }
-
-        // 역방향 링크 배열 읽기
-        if (fread(index_table[i].backward_links, sizeof(uint32_t), index_table[i].backward_link_count, file) != index_table[i].backward_link_count)
-        {
-            fprintf(stderr, "Error reading backward links for index table entry\n");
-            fclose(file);
-            free(index_table);
-            exit(EXIT_FAILURE);
-        }
+        fprintf(stderr, "Error reading index table entries from file\n");
+        fclose(file);
+        free(index_table);
+        exit(EXIT_FAILURE);
     }
 
     fclose(file);
@@ -97,6 +66,7 @@ void initialize_index_table()
 }
 
 // 인덱스 테이블을 파일에 저장하는 함수
+
 void save_index_table()
 {
     FILE *file = fopen(INDEX_FILE, "wb");
@@ -106,24 +76,13 @@ void save_index_table()
         return;
     }
 
-    // 인덱스 테이블 크기를 씁니다.
     fwrite(&index_table_size, sizeof(uint32_t), 1, file);
-
-    // 인덱스 테이블 데이터를 씁니다.
-    for (uint32_t i = 0; i < index_table_size; i++)
-    {
-        fwrite(&index_table[i].index, sizeof(uint32_t), 1, file);
-        fwrite(&index_table[i].offset, sizeof(uint64_t), 1, file);
-        fwrite(&index_table[i].length, sizeof(uint32_t), 1, file);
-        fwrite(&index_table[i].forward_link_count, sizeof(uint32_t), 1, file);
-        fwrite(&index_table[i].backward_link_count, sizeof(uint32_t), 1, file);
-        fwrite(index_table[i].forward_links, sizeof(uint32_t), index_table[i].forward_link_count, file);
-        fwrite(index_table[i].backward_links, sizeof(uint32_t), index_table[i].backward_link_count, file);
-    }
+    fwrite(index_table, sizeof(IndexEntry), index_table_size, file);
 
     fclose(file);
     printf("Saved index table with %u entries\n", index_table_size);
 }
+
 void initialize_free_space_table()
 {
     FILE *file = fopen(FREE_SPACE_FILE, "rb");
@@ -176,25 +135,7 @@ void initialize_free_space_table()
     fclose(file);
     syslog(LOG_INFO, "Loaded free space table with %u entries", free_space_table_size);
 }
-// 인덱스 테이블을 파일에 저장하는 함수
-// void save_index_table()
-// {
-//     FILE *file = fopen(INDEX_FILE, "wb");
-//     if (file == NULL)
-//     {
-//         syslog(LOG_ERR, "Error opening index file for writing: %s", INDEX_FILE);
-//         return;
-//     }
 
-//     // 인덱스 테이블 크기를 씁니다.
-//     fwrite(&index_table_size, sizeof(uint32_t), 1, file);
-
-//     // 인덱스 테이블 데이터를 씁니다.
-//     fwrite(index_table, sizeof(IndexEntry), index_table_size, file);
-
-//     fclose(file);
-//     syslog(LOG_INFO, "Saved index table with %u entries", index_table_size);
-// }
 void save_free_space_table()
 {
     FILE *file = fopen(FREE_SPACE_FILE, "wb");
@@ -294,42 +235,65 @@ uint32_t next_power_of_two(uint32_t v)
     v++;
     return v < 16 ? 16 : v; // 최소 크기를 16으로 설정
 }
+// Link management functions
 int add_forward_link(uint32_t source_index, uint32_t target_index)
 {
     if (source_index == 0 || source_index > index_table_size ||
         target_index == 0 || target_index > index_table_size)
     {
-        return 0; // 유효하지 않은 인덱스
+        return 0; // Invalid indices
     }
 
-    IndexEntry *source_entry = &index_table[source_index - 1];
-    IndexEntry *target_entry = &index_table[target_index - 1];
-
-    if (source_entry->forward_link_count >= MAX_LINKS)
+    FILE *file = fopen(MESSAGE_FILE, "r+b");
+    if (file == NULL)
     {
-        return 0; // 더 이상 링크를 추가할 수 없음
+        syslog(LOG_ERR, "Error opening message file: %s", MESSAGE_FILE);
+        return 0;
     }
 
-    // 이미 존재하는 링크인지 확인
-    for (uint32_t i = 0; i < source_entry->forward_link_count; i++)
+    // Read source message header
+    fseek(file, index_table[source_index - 1].offset, SEEK_SET);
+    MessageHeader source_header;
+    fread(&source_header, sizeof(MessageHeader), 1, file);
+
+    // Check if link already exists
+    for (uint32_t i = 0; i < source_header.forward_link_count; i++)
     {
-        if (source_entry->forward_links[i] == target_index)
+        if (source_header.forward_links[i] == target_index)
         {
-            return 1; // 이미 존재하는 링크
+            fclose(file);
+            return 1; // Link already exists
         }
     }
 
-    // 새 순방향 링크 추가
-    source_entry->forward_links[source_entry->forward_link_count++] = target_index;
-
-    // 대상 메시지의 역방향 링크 추가
-    if (target_entry->backward_link_count < MAX_LINKS)
+    // Add forward link
+    if (source_header.forward_link_count < MAX_LINKS)
     {
-        target_entry->backward_links[target_entry->backward_link_count++] = source_index;
+        source_header.forward_links[source_header.forward_link_count++] = target_index;
+        fseek(file, index_table[source_index - 1].offset, SEEK_SET);
+        fwrite(&source_header, sizeof(MessageHeader), 1, file);
+    }
+    else
+    {
+        fclose(file);
+        return 0; // Max links reached
     }
 
-    save_index_table();
-    return 1; // 성공
+    // Read target message header
+    fseek(file, index_table[target_index - 1].offset, SEEK_SET);
+    MessageHeader target_header;
+    fread(&target_header, sizeof(MessageHeader), 1, file);
+
+    // Add backward link to target
+    if (target_header.backward_link_count < MAX_LINKS)
+    {
+        target_header.backward_links[target_header.backward_link_count++] = source_index;
+        fseek(file, index_table[target_index - 1].offset, SEEK_SET);
+        fwrite(&target_header, sizeof(MessageHeader), 1, file);
+    }
+
+    fclose(file);
+    return 1; // Success
 }
 
 int add_backward_link(uint32_t source_index, uint32_t target_index)
@@ -337,62 +301,93 @@ int add_backward_link(uint32_t source_index, uint32_t target_index)
     if (source_index == 0 || source_index > index_table_size ||
         target_index == 0 || target_index > index_table_size)
     {
-        return 0; // 유효하지 않은 인덱스
+        return 0; // Invalid indices
     }
 
-    IndexEntry *source_entry = &index_table[source_index - 1];
-    IndexEntry *target_entry = &index_table[target_index - 1];
-
-    if (source_entry->backward_link_count >= MAX_LINKS)
+    FILE *file = fopen(MESSAGE_FILE, "r+b");
+    if (file == NULL)
     {
-        return 0; // 더 이상 링크를 추가할 수 없음
+        syslog(LOG_ERR, "Error opening message file: %s", MESSAGE_FILE);
+        return 0;
     }
 
-    // 이미 존재하는 링크인지 확인
-    for (uint32_t i = 0; i < source_entry->backward_link_count; i++)
+    // Read source message header
+    fseek(file, index_table[source_index - 1].offset, SEEK_SET);
+    MessageHeader source_header;
+    fread(&source_header, sizeof(MessageHeader), 1, file);
+
+    // Check if link already exists
+    for (uint32_t i = 0; i < source_header.backward_link_count; i++)
     {
-        if (source_entry->backward_links[i] == target_index)
+        if (source_header.backward_links[i] == target_index)
         {
-            return 1; // 이미 존재하는 링크
+            fclose(file);
+            return 1; // Link already exists
         }
     }
 
-    // 새 역방향 링크 추가
-    source_entry->backward_links[source_entry->backward_link_count++] = target_index;
-
-    // 대상 메시지의 순방향 링크 추가
-    if (target_entry->forward_link_count < MAX_LINKS)
+    // Add backward link
+    if (source_header.backward_link_count < MAX_LINKS)
     {
-        target_entry->forward_links[target_entry->forward_link_count++] = source_index;
+        source_header.backward_links[source_header.backward_link_count++] = target_index;
+        fseek(file, index_table[source_index - 1].offset, SEEK_SET);
+        fwrite(&source_header, sizeof(MessageHeader), 1, file);
+    }
+    else
+    {
+        fclose(file);
+        return 0; // Max links reached
     }
 
-    save_index_table();
-    return 1; // 성공
+    // Read target message header
+    fseek(file, index_table[target_index - 1].offset, SEEK_SET);
+    MessageHeader target_header;
+    fread(&target_header, sizeof(MessageHeader), 1, file);
+
+    // Add forward link to target
+    if (target_header.forward_link_count < MAX_LINKS)
+    {
+        target_header.forward_links[target_header.forward_link_count++] = source_index;
+        fseek(file, index_table[target_index - 1].offset, SEEK_SET);
+        fwrite(&target_header, sizeof(MessageHeader), 1, file);
+    }
+
+    fclose(file);
+    return 1; // Success
 }
+
 int remove_forward_link(uint32_t source_index, uint32_t target_index)
 {
     if (source_index == 0 || source_index > index_table_size ||
         target_index == 0 || target_index > index_table_size)
     {
-        return 0; // 유효하지 않은 인덱스
+        return 0; // Invalid indices
     }
 
-    IndexEntry *source_entry = &index_table[source_index - 1];
-    IndexEntry *target_entry = &index_table[target_index - 1];
-
-    int found = 0;
-
-    // 순방향 링크 제거
-    for (uint32_t i = 0; i < source_entry->forward_link_count; i++)
+    FILE *file = fopen(MESSAGE_FILE, "r+b");
+    if (file == NULL)
     {
-        if (source_entry->forward_links[i] == target_index)
+        syslog(LOG_ERR, "Error opening message file: %s", MESSAGE_FILE);
+        return 0;
+    }
+
+    // Read source message header
+    fseek(file, index_table[source_index - 1].offset, SEEK_SET);
+    MessageHeader source_header;
+    fread(&source_header, sizeof(MessageHeader), 1, file);
+
+    // Find and remove forward link
+    int found = 0;
+    for (uint32_t i = 0; i < source_header.forward_link_count; i++)
+    {
+        if (source_header.forward_links[i] == target_index)
         {
-            // 링크 제거 및 배열 정리
-            for (uint32_t j = i; j < source_entry->forward_link_count - 1; j++)
+            // Remove link by shifting remaining links
+            for (uint32_t j = i; j < source_header.forward_link_count - 1; j++)
             {
-                source_entry->forward_links[j] = source_entry->forward_links[j + 1];
+                source_header.forward_links[j] = source_header.forward_links[j + 1];
             }
-            source_entry->forward_link_count--;
+            source_header.forward_link_count--;
             found = 1;
             break;
         }
@@ -400,24 +395,37 @@ int remove_forward_link(uint32_t source_index, uint32_t target_index)
 
     if (found)
     {
-        // 대상 메시지의 역방향 링크 제거
-        for (uint32_t i = 0; i < target_entry->backward_link_count; i++)
+        // Write updated source header
+        fseek(file, index_table[source_index - 1].offset, SEEK_SET);
+        fwrite(&source_header, sizeof(MessageHeader), 1, file);
+
+        // Read target message header
+        fseek(file, index_table[target_index - 1].offset, SEEK_SET);
+        MessageHeader target_header;
+        fread(&target_header, sizeof(MessageHeader), 1, file);
+
+        // Remove backward link from target
+        for (uint32_t i = 0; i < target_header.backward_link_count; i++)
         {
-            if (target_entry->backward_links[i] == source_index)
+            if (target_header.backward_links[i] == source_index)
             {
-                for (uint32_t j = i; j < target_entry->backward_link_count - 1; j++)
+                // Remove link by shifting remaining links
+                for (uint32_t j = i; j < target_header.backward_link_count - 1; j++)
                 {
-                    target_entry->backward_links[j] = target_entry->backward_links[j + 1];
+                    target_header.backward_links[j] = target_header.backward_links[j + 1];
                 }
-                target_entry->backward_link_count--;
+                target_header.backward_link_count--;
                 break;
             }
         }
-        save_index_table();
-        return 1; // 성공
+
+        // Write updated target header
+        fseek(file, index_table[target_index - 1].offset, SEEK_SET);
+        fwrite(&target_header, sizeof(MessageHeader), 1, file);
     }
 
-    return 0; // 링크를 찾지 못함
+    fclose(file);
+    return found; // Return 1 if link was found and removed, 0 otherwise
 }
 
 int remove_backward_link(uint32_t source_index, uint32_t target_index)
@@ -425,25 +433,33 @@ int remove_backward_link(uint32_t source_index, uint32_t target_index)
     if (source_index == 0 || source_index > index_table_size ||
         target_index == 0 || target_index > index_table_size)
     {
-        return 0; // 유효하지 않은 인덱스
+        return 0; // Invalid indices
     }
 
-    IndexEntry *source_entry = &index_table[source_index - 1];
-    IndexEntry *target_entry = &index_table[target_index - 1];
-
-    int found = 0;
-
-    // 역방향 링크 제거
-    for (uint32_t i = 0; i < source_entry->backward_link_count; i++)
+    FILE *file = fopen(MESSAGE_FILE, "r+b");
+    if (file == NULL)
     {
-        if (source_entry->backward_links[i] == target_index)
+        syslog(LOG_ERR, "Error opening message file: %s", MESSAGE_FILE);
+        return 0;
+    }
+
+    // Read source message header
+    fseek(file, index_table[source_index - 1].offset, SEEK_SET);
+    MessageHeader source_header;
+    fread(&source_header, sizeof(MessageHeader), 1, file);
+
+    // Find and remove backward link
+    int found = 0;
+    for (uint32_t i = 0; i < source_header.backward_link_count; i++)
+    {
+        if (source_header.backward_links[i] == target_index)
         {
-            // 링크 제거 및 배열 정리
-            for (uint32_t j = i; j < source_entry->backward_link_count - 1; j++)
+            // Remove link by shifting remaining links
+            for (uint32_t j = i; j < source_header.backward_link_count - 1; j++)
             {
-                source_entry->backward_links[j] = source_entry->backward_links[j + 1];
+                source_header.backward_links[j] = source_header.backward_links[j + 1];
             }
-            source_entry->backward_link_count--;
+            source_header.backward_link_count--;
             found = 1;
             break;
         }
@@ -451,49 +467,75 @@ int remove_backward_link(uint32_t source_index, uint32_t target_index)
 
     if (found)
     {
-        // 대상 메시지의 순방향 링크 제거
-        for (uint32_t i = 0; i < target_entry->forward_link_count; i++)
+        // Write updated source header
+        fseek(file, index_table[source_index - 1].offset, SEEK_SET);
+        fwrite(&source_header, sizeof(MessageHeader), 1, file);
+
+        // Read target message header
+        fseek(file, index_table[target_index - 1].offset, SEEK_SET);
+        MessageHeader target_header;
+        fread(&target_header, sizeof(MessageHeader), 1, file);
+
+        // Remove forward link from target
+        for (uint32_t i = 0; i < target_header.forward_link_count; i++)
         {
-            if (target_entry->forward_links[i] == source_index)
+            if (target_header.forward_links[i] == source_index)
             {
-                for (uint32_t j = i; j < target_entry->forward_link_count - 1; j++)
+                // Remove link by shifting remaining links
+                for (uint32_t j = i; j < target_header.forward_link_count - 1; j++)
                 {
-                    target_entry->forward_links[j] = target_entry->forward_links[j + 1];
+                    target_header.forward_links[j] = target_header.forward_links[j + 1];
                 }
-                target_entry->forward_link_count--;
+                target_header.forward_link_count--;
                 break;
             }
         }
-        save_index_table();
-        return 1; // 성공
+
+        // Write updated target header
+        fseek(file, index_table[target_index - 1].offset, SEEK_SET);
+        fwrite(&target_header, sizeof(MessageHeader), 1, file);
     }
 
-    return 0; // 링크를 찾지 못함
+    fclose(file);
+    return found; // Return 1 if link was found and removed, 0 otherwise
 }
+
 uint32_t *get_forward_links(uint32_t index, uint32_t *count)
 {
     if (index == 0 || index > index_table_size)
     {
         *count = 0;
-        return NULL; // 유효하지 않은 인덱스
+        return NULL;
     }
 
-    IndexEntry *entry = &index_table[index - 1];
-    *count = entry->forward_link_count;
+    FILE *file = fopen(MESSAGE_FILE, "rb");
+    if (file == NULL)
+    {
+        syslog(LOG_ERR, "Error opening message file: %s", MESSAGE_FILE);
+        *count = 0;
+        return NULL;
+    }
 
-    if (entry->forward_link_count == 0)
+    fseek(file, index_table[index - 1].offset, SEEK_SET);
+    MessageHeader header;
+    fread(&header, sizeof(MessageHeader), 1, file);
+    fclose(file);
+
+    *count = header.forward_link_count;
+    if (*count == 0)
     {
         return NULL;
     }
 
-    uint32_t *links = malloc(sizeof(uint32_t) * entry->forward_link_count);
+    uint32_t *links = malloc(sizeof(uint32_t) * (*count));
     if (links == NULL)
     {
+        syslog(LOG_ERR, "Memory allocation failed for forward links");
         *count = 0;
-        return NULL; // 메모리 할당 실패
+        return NULL;
     }
 
-    memcpy(links, entry->forward_links, sizeof(uint32_t) * entry->forward_link_count);
+    memcpy(links, header.forward_links, sizeof(uint32_t) * (*count));
     return links;
 }
 
@@ -502,25 +544,37 @@ uint32_t *get_backward_links(uint32_t index, uint32_t *count)
     if (index == 0 || index > index_table_size)
     {
         *count = 0;
-        return NULL; // 유효하지 않은 인덱스
+        return NULL;
     }
 
-    IndexEntry *entry = &index_table[index - 1];
-    *count = entry->backward_link_count;
+    FILE *file = fopen(MESSAGE_FILE, "rb");
+    if (file == NULL)
+    {
+        syslog(LOG_ERR, "Error opening message file: %s", MESSAGE_FILE);
+        *count = 0;
+        return NULL;
+    }
 
-    if (entry->backward_link_count == 0)
+    fseek(file, index_table[index - 1].offset, SEEK_SET);
+    MessageHeader header;
+    fread(&header, sizeof(MessageHeader), 1, file);
+    fclose(file);
+
+    *count = header.backward_link_count;
+    if (*count == 0)
     {
         return NULL;
     }
 
-    uint32_t *links = malloc(sizeof(uint32_t) * entry->backward_link_count);
+    uint32_t *links = malloc(sizeof(uint32_t) * (*count));
     if (links == NULL)
     {
+        syslog(LOG_ERR, "Memory allocation failed for backward links");
         *count = 0;
-        return NULL; // 메모리 할당 실패
+        return NULL;
     }
 
-    memcpy(links, entry->backward_links, sizeof(uint32_t) * entry->backward_link_count);
+    memcpy(links, header.backward_links, sizeof(uint32_t) * (*count));
     return links;
 }
 
@@ -534,8 +588,8 @@ uint32_t append_message_to_file(const char *message)
     }
 
     uint32_t message_len = strlen(message);
-    uint32_t total_len = sizeof(time_t) + sizeof(uint32_t) + message_len;
-    uint32_t allocated_len = next_power_of_two(total_len); // 2의 거듭제곱 크기로 할당
+    uint32_t total_len = sizeof(MessageHeader) + message_len;
+    uint32_t allocated_len = next_power_of_two(total_len);
     uint64_t offset = find_free_space(allocated_len);
 
     FILE *file;
@@ -561,14 +615,18 @@ uint32_t append_message_to_file(const char *message)
         fseek(file, offset, SEEK_SET);
     }
 
-    uint32_t index = index_table_size + 1;
-    time_t now = time(NULL);
+    MessageHeader header = {
+        .timestamp = time(NULL),
+        .message_length = message_len,
+        .forward_link_count = 0,
+        .backward_link_count = 0
+    };
+    memset(header.forward_links, 0, sizeof(header.forward_links));
+    memset(header.backward_links, 0, sizeof(header.backward_links));
 
-    fwrite(&now, sizeof(time_t), 1, file);
-    fwrite(&message_len, sizeof(uint32_t), 1, file);
+    fwrite(&header, sizeof(MessageHeader), 1, file);
     fwrite(message, 1, message_len, file);
 
-    // 남은 공간을 0으로 채움
     uint32_t padding = allocated_len - total_len;
     char *zero_pad = calloc(padding, 1);
     fwrite(zero_pad, 1, padding, file);
@@ -583,13 +641,10 @@ uint32_t append_message_to_file(const char *message)
 
     fclose(file);
 
+    uint32_t index = index_table_size + 1;
     index_table[index_table_size].index = index;
     index_table[index_table_size].offset = offset;
     index_table[index_table_size].length = allocated_len;
-    index_table[index_table_size].forward_link_count = 0; // 새 메시지는 링크가 없음
-    index_table[index_table_size].backward_link_count = 0;
-    memset(index_table[index_table_size].forward_links, 0, sizeof(uint32_t) * MAX_LINKS);  // 링크 배열 초기화
-    memset(index_table[index_table_size].backward_links, 0, sizeof(uint32_t) * MAX_LINKS); // 링크 배열 초기화
     index_table_size++;
 
     save_index_table();
@@ -597,6 +652,7 @@ uint32_t append_message_to_file(const char *message)
     syslog(LOG_INFO, "Message appended to file: %s (Index: %u, Allocated Length: %u)", MESSAGE_FILE, index, allocated_len);
     return index;
 }
+
 // modify_message_by_index 함수 수정
 int modify_message_by_index(uint32_t target_index, const char *new_message)
 {
@@ -606,42 +662,44 @@ int modify_message_by_index(uint32_t target_index, const char *new_message)
     }
 
     uint32_t new_message_len = strlen(new_message);
-    uint32_t new_total_len = sizeof(time_t) + sizeof(uint32_t) + new_message_len;
+    uint32_t new_total_len = sizeof(MessageHeader) + new_message_len;
     uint32_t new_allocated_len = next_power_of_two(new_total_len);
+
+    FILE *file = fopen(MESSAGE_FILE, "r+b");
+    if (file == NULL)
+    {
+        syslog(LOG_ERR, "Error opening file for modification: %s", MESSAGE_FILE);
+        return 0;
+    }
+
+    uint64_t offset = index_table[target_index - 1].offset;
+    fseek(file, offset, SEEK_SET);
+
+    MessageHeader header;
+    fread(&header, sizeof(MessageHeader), 1, file);
 
     if (new_allocated_len <= index_table[target_index - 1].length)
     {
-        // 새 메시지가 기존 공간에 맞는 경우
-        FILE *file = fopen(MESSAGE_FILE, "r+b");
-        if (file == NULL)
-        {
-            syslog(LOG_ERR, "Error opening file for modification: %s", MESSAGE_FILE);
-            return 0;
-        }
-
-        uint64_t offset = index_table[target_index - 1].offset;
+        // New message fits in the existing space
+        header.message_length = new_message_len;
         fseek(file, offset, SEEK_SET);
-
-        time_t now = time(NULL);
-        fwrite(&now, sizeof(time_t), 1, file);
-        fwrite(&new_message_len, sizeof(uint32_t), 1, file);
+        fwrite(&header, sizeof(MessageHeader), 1, file);
         fwrite(new_message, 1, new_message_len, file);
 
-        // 남은 공간을 0으로 채움
+        // Fill remaining space with zeros
         uint32_t padding = index_table[target_index - 1].length - new_total_len;
         char *zero_pad = calloc(padding, 1);
         fwrite(zero_pad, 1, padding, file);
         free(zero_pad);
-
-        fclose(file);
     }
     else
     {
-        // 새 메시지가 기존 공간보다 큰 경우
+        // New message doesn't fit, need to allocate new space
         uint64_t new_offset = find_free_space(new_allocated_len);
         if (new_offset == 0)
         {
-            FILE *file = fopen(MESSAGE_FILE, "ab");
+            fclose(file);
+            file = fopen(MESSAGE_FILE, "ab");
             if (file == NULL)
             {
                 syslog(LOG_ERR, "Error opening message file for appending: %s", MESSAGE_FILE);
@@ -649,44 +707,33 @@ int modify_message_by_index(uint32_t target_index, const char *new_message)
             }
             fseek(file, 0, SEEK_END);
             new_offset = ftell(file);
-            fclose(file);
         }
 
-        FILE *file = fopen(MESSAGE_FILE, "r+b");
-        if (file == NULL)
-        {
-            syslog(LOG_ERR, "Error opening file for modification: %s", MESSAGE_FILE);
-            return 0;
-        }
-
-        fseek(file, new_offset, SEEK_SET);
-
-        time_t now = time(NULL);
-        fwrite(&now, sizeof(time_t), 1, file);
-        fwrite(&new_message_len, sizeof(uint32_t), 1, file);
+        header.message_length = new_message_len;
+        fwrite(&header, sizeof(MessageHeader), 1, file);
         fwrite(new_message, 1, new_message_len, file);
 
-        // 남은 공간을 0으로 채움
+        // Fill remaining space with zeros
         uint32_t padding = new_allocated_len - new_total_len;
         char *zero_pad = calloc(padding, 1);
         fwrite(zero_pad, 1, padding, file);
         free(zero_pad);
 
-        fclose(file);
-
-        // 기존 공간을 free space로 추가
+        // Add old space to free space table
         add_free_space(index_table[target_index - 1].offset, index_table[target_index - 1].length);
 
-        // 인덱스 테이블 업데이트
+        // Update index table
         index_table[target_index - 1].offset = new_offset;
         index_table[target_index - 1].length = new_allocated_len;
+        save_index_table();
     }
 
-    save_index_table();
-    return 1; // 수정 성공
+    fclose(file);
+    return 1; // Modification successful
 }
+
 // 인덱스 테이블 정보를 JSON 형식으로 반환하는 함수
-// get_index_table_info 함수 수정
+//get_index_table_info 함수 수정
 char *get_index_table_info()
 {
     json_object *index_array = json_object_new_array();
@@ -697,21 +744,6 @@ char *get_index_table_info()
         json_object_object_add(entry, "index", json_object_new_int(index_table[i].index));
         json_object_object_add(entry, "offset", json_object_new_int64(index_table[i].offset));
         json_object_object_add(entry, "length", json_object_new_int(index_table[i].length));
-
-        json_object *forward_links_array = json_object_new_array();
-        for (uint32_t j = 0; j < index_table[i].forward_link_count; j++)
-        {
-            json_object_array_add(forward_links_array, json_object_new_int(index_table[i].forward_links[j]));
-        }
-        json_object_object_add(entry, "forward_links", forward_links_array);
-
-        json_object *backward_links_array = json_object_new_array();
-        for (uint32_t j = 0; j < index_table[i].backward_link_count; j++)
-        {
-            json_object_array_add(backward_links_array, json_object_new_int(index_table[i].backward_links[j]));
-        }
-        json_object_object_add(entry, "backward_links", backward_links_array);
-
         json_object_array_add(index_array, entry);
     }
 
@@ -803,7 +835,7 @@ char *get_binary_data_by_index(uint32_t target_index)
     return hex_string;
 }
 // 수정된 함수: 특정 인덱스의 메시지를 지정된 형식으로 반환
-char *get_message_by_index_and_format(uint32_t target_index, const char *format)
+char *get_message_by_index_and_format(uint32_t target_index, const char* format)
 {
     if (target_index == 0 || target_index > index_table_size)
     {
@@ -818,63 +850,78 @@ char *get_message_by_index_and_format(uint32_t target_index, const char *format)
     }
 
     uint64_t offset = index_table[target_index - 1].offset;
-    uint32_t length = index_table[target_index - 1].length;
-    fseek(file, offset, SEEK_SET);
+    uint32_t total_length = index_table[target_index - 1].length;
 
-    unsigned char *buffer = malloc(length);
-    if (buffer == NULL)
+    if (fseek(file, offset, SEEK_SET) != 0)
     {
-        syslog(LOG_ERR, "Memory allocation failed");
+        syslog(LOG_ERR, "Error seeking to message position");
         fclose(file);
         return NULL;
     }
 
-    size_t read_size = fread(buffer, 1, length, file);
+    // Read the entire allocated space
+    char *buffer = malloc(total_length);
+    if (buffer == NULL)
+    {
+        syslog(LOG_ERR, "Memory allocation failed for message buffer");
+        fclose(file);
+        return NULL;
+    }
+
+    size_t read_size = fread(buffer, 1, total_length, file);
     fclose(file);
 
-    if (read_size != length)
+    if (read_size != total_length)
     {
-        syslog(LOG_ERR, "Error reading full message data");
+        syslog(LOG_ERR, "Error reading message data: expected %u bytes, got %zu bytes", total_length, read_size);
         free(buffer);
         return NULL;
     }
 
+    // Extract header and message from the buffer
+    MessageHeader *header = (MessageHeader *)buffer;
+    char *message = buffer + sizeof(MessageHeader);
+
+    // Sanity check
+    if (header->message_length > total_length - sizeof(MessageHeader))
+    {
+        syslog(LOG_ERR, "Corrupted message header: message length exceeds allocated space");
+        free(buffer);
+        return NULL;
+    }
+
+    // Format the output as requested
     char *result;
     if (strcmp(format, "text") == 0)
     {
-        time_t timestamp;
-        uint32_t message_length;
-        memcpy(&timestamp, buffer, sizeof(time_t));
-        memcpy(&message_length, buffer + sizeof(time_t), sizeof(uint32_t));
-
-        result = malloc(message_length + 1);
+        result = malloc(header->message_length + 1);
         if (result == NULL)
         {
-            syslog(LOG_ERR, "Memory allocation failed for text result");
+            syslog(LOG_ERR, "Memory allocation failed for result string");
             free(buffer);
             return NULL;
         }
-        memcpy(result, buffer + sizeof(time_t) + sizeof(uint32_t), message_length);
-        result[message_length] = '\0';
+        memcpy(result, message, header->message_length);
+        result[header->message_length] = '\0';
     }
     else if (strcmp(format, "binary") == 0 || strcmp(format, "hex") == 0)
     {
-        result = malloc(length * 2 + 1);
+        result = malloc(header->message_length * 2 + 1);
         if (result == NULL)
         {
-            syslog(LOG_ERR, "Memory allocation failed for hex result");
+            syslog(LOG_ERR, "Memory allocation failed for hex string");
             free(buffer);
             return NULL;
         }
-        for (uint32_t i = 0; i < length; i++)
+        for (uint32_t i = 0; i < header->message_length; i++)
         {
-            sprintf(result + (i * 2), "%02x", buffer[i]);
+            sprintf(result + (i * 2), "%02x", (unsigned char)message[i]);
         }
-        result[length * 2] = '\0';
+        result[header->message_length * 2] = '\0';
     }
     else
     {
-        syslog(LOG_ERR, "Unknown format requested");
+        syslog(LOG_ERR, "Unknown format requested: %s", format);
         free(buffer);
         return NULL;
     }

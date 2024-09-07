@@ -563,11 +563,12 @@ void handle_run(SSL *ssl)
 void add_links_to_response(uint32_t index, const char *direction, json_object *links_obj)
 {
     uint32_t count;
-    uint32_t *links = strcmp(direction, "forward") == 0 ? get_forward_links(index, &count) : get_backward_links(index, &count);
-    if (strcmp(direction, "forward2") == 0)
+    uint32_t *links;
+    if (strcmp(direction, "forward") == 0 || strcmp(direction, "forward2") == 0)
     {
         links = get_forward_links(index, &count);
-    } else if (strcmp(direction, "backward2") == 0)
+    }
+    else if (strcmp(direction, "backward") == 0 || strcmp(direction, "backward2") == 0)
     {
         links = get_backward_links(index, &count);
     }
@@ -585,6 +586,7 @@ void add_links_to_response(uint32_t index, const char *direction, json_object *l
     json_object_object_add(links_obj, direction, array);
     free(links);
 }
+
 void handle_message(SSL *ssl, const char *message)
 {
     char *response;
@@ -654,6 +656,7 @@ void handle_message(SSL *ssl, const char *message)
                         add_links_to_response(index, "backward2", links_obj);
                         json_object_object_add(response_obj, "parentNumber", json_object_new_string(parent_number_str));
                     }
+
                     if (json_object_object_length(links_obj) > 0)
                     {
                         json_object_object_add(response_obj, "links", links_obj);
@@ -661,7 +664,6 @@ void handle_message(SSL *ssl, const char *message)
                     else
                     {
                         json_object_put(links_obj);
-                        json_object_object_add(response_obj, "error", json_object_new_string("Invalid direction"));
                     }
                 }
 
@@ -841,7 +843,6 @@ void handle_message(SSL *ssl, const char *message)
     }
     else
     {
-        // 모든 메시지를 새 인덱스에 저장
         uint32_t saved_index = append_message_to_file(new_message);
 
         if (saved_index > 0)
@@ -852,24 +853,14 @@ void handle_message(SSL *ssl, const char *message)
             json_object_object_add(response_obj, "saved_index", json_object_new_int(saved_index));
             json_object_object_add(response_obj, "max_index", json_object_new_int(get_max_index()));
 
-            json_object *links_obj = json_object_new_object();
-            json_object *forward_array = json_object_new_array();
-            json_object *backward_array = json_object_new_array();
-
             // 새로 저장된 메시지를 현재 인덱스에 링크
             if (current_index > 0 && current_index <= (int)get_max_index())
             {
                 if (add_forward_link(current_index, saved_index))
                 {
-                    json_object_array_add(backward_array, json_object_new_int(current_index));
+                    json_object_object_add(response_obj, "linked_index", json_object_new_int(current_index));
                 }
-                json_object_object_add(response_obj, "linked_index", json_object_new_int(current_index));
             }
-
-            // 링크 정보 추가
-            json_object_object_add(links_obj, "forward", forward_array);
-            json_object_object_add(links_obj, "backward", backward_array);
-            json_object_object_add(response_obj, "links", links_obj);
 
             const char *json_string = json_object_to_json_string(response_obj);
             response = strdup(json_string);
@@ -892,8 +883,7 @@ void handle_action(SSL *ssl, json_object *parsed_json, const char *action)
     if (strcmp(action, "list_files") == 0)
     {
         json_object *path_obj;
-        const char *path = json_object_object_get_ex(parsed_json, "path", &path_obj) ?
-                           json_object_get_string(path_obj) : "";
+        const char *path = json_object_object_get_ex(parsed_json, "path", &path_obj) ? json_object_get_string(path_obj) : "";
         handle_list_files(ssl, path);
     }
     else if (strcmp(action, "read_file") == 0)
@@ -980,7 +970,8 @@ void *handle_client(void *ssl_ptr)
     buf[bytes] = '\0';
 
     // Use a lookup table for common file requests
-    static const struct {
+    static const struct
+    {
         const char *path;
         const char *file;
     } file_routes[] = {

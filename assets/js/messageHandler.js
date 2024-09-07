@@ -77,8 +77,6 @@ function displayIndexTableInfo(data) {
             <th>Index</th>
             <th>Offset</th>
             <th>Length</th>
-            <th>Forward Links</th>
-            <th>Backward Links</th>
         </tr>
     `;
 
@@ -89,8 +87,6 @@ function displayIndexTableInfo(data) {
         row.insertCell().textContent = entry.index;
         row.insertCell().textContent = entry.offset;
         row.insertCell().textContent = entry.length;
-        row.insertCell().textContent = entry.forward_links.join(', ');
-        row.insertCell().textContent = entry.backward_links.join(', ');
     });
 
     tableContainer.appendChild(table);

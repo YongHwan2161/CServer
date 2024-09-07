@@ -14,16 +14,23 @@ typedef struct {
     uint32_t index;
     uint64_t offset;
     uint32_t length;
+} IndexEntry;
+
+typedef struct {
+    time_t timestamp;
+    uint32_t message_length;
     uint32_t forward_link_count;
     uint32_t backward_link_count;
     uint32_t forward_links[MAX_LINKS];
     uint32_t backward_links[MAX_LINKS];
-} IndexEntry;
+    char message[];  // 가변 길이 배열
+} MessageHeader;
 
 typedef struct {
     uint64_t offset;
     uint32_t length;
 } FreeSpaceEntry;
+
 extern IndexEntry *index_table;
 extern uint32_t index_table_size;
 extern FreeSpaceEntry *free_space_table;

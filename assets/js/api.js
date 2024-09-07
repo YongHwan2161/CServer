@@ -21,6 +21,12 @@ export function getMessageByIndex(index, format = 'text') {
     sendMessage('message', `get:${index}:${format}:backward`);
     updateOutput(`Requesting message and links with index: ${index}`);
 }
+// 새로운 함수 추가
+export function getMessageHeaderInfo(index) {
+    sendMessage('message', `get_message_header:${index}`);
+    updateOutput(`Requesting message header info for index: ${index}`);
+}
+
 export function getForward2Messages(index, parent_index, format = 'text'){
     sendMessage('message', `get:${index}:${format}:forward2:${parent_index}`);
 }
